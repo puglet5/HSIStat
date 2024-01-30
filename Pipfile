@@ -1,0 +1,31 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pandas = "*"
+numpy = "*"
+usb-monitor = "*"
+hsistat = {file = ".", editable = true}
+coloredlogs = "*"
+dearpygui = "*"
+scipy = "*"
+scikit-learn = "*"
+matplotlib = "*"
+spectral = "*"
+opencv-python = "*"
+pillow = "*"
+
+[dev-packages]
+black = "*"
+bandit = "*"
+pandas-stubs = "*"
+setuptools = "*"
+ipykernel = "*"
+nuitka = "*"
+memory-profiler = "*"
+typing-extensions = "*"
+
+[requires]
+python_version = "3.11"
