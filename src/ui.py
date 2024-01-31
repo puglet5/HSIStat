@@ -9,11 +9,10 @@ LABEL_PAD = 23
 
 @dataclass
 class UI:
-    window_tag: Literal["primary_window"] = field(init=False, default="primary_window")
     project: Project = field(init=False)
-    image_labels: list[str] = field(init=False, default_factory=list)
-    gallery_tag: Literal["image_gallery"] = field(init=False, default="image_gallery")
     current_image: str = field(init=False)
+    window_tag: Literal["primary_window"] = field(init=False, default="primary_window")
+    gallery_tag: Literal["image_gallery"] = field(init=False, default="image_gallery")
     image_gallery_n_columns: Literal[9] = 9
     sidebar_width: Literal[350] = 350
 
@@ -72,19 +71,19 @@ class UI:
         dpg.bind_theme(self.global_theme)
 
     def populate_image_gallery(self):
-        if not self.project.image_labels:
+        if not self.project.images:
             dpg.add_text(
                 parent=self.gallery_tag,
                 default_value="No images found in specified directory",
             )
         for i in range(
-            len(self.project.image_labels) // self.image_gallery_n_columns + 1
+            len(self.project.images.keys()) // self.image_gallery_n_columns + 1
         ):
             dpg.add_group(
                 tag=f"image_gallery_row_{i}", parent=self.gallery_tag, horizontal=True
             )
 
-        for i, label in enumerate(self.project.image_labels):
+        for i, label in enumerate(self.project.images.keys()):
             width, height, channels, data = dpg.load_image(
                 f"{self.project.directory}/{label}/{label}.png"
             )
@@ -102,6 +101,7 @@ class UI:
                     width=-1,
                     height=100,
                     tag=f"image_{label}_button",
+                    user_data=label,
                     callback=self.image_select_callback,
                 )
                 dpg.add_button(label=label, indent=2)
@@ -109,7 +109,6 @@ class UI:
 
     def setup_dev(self):
         self.project = Project(dpg.get_value("project_directory"))
-        self.image_labels = self.project.image_labels
         self.populate_image_gallery()
 
     def setup_layout(self):
@@ -226,6 +225,13 @@ class UI:
                             with dpg.group(horizontal=True):
                                 dpg.add_text("Show '< LOD'".rjust(LABEL_PAD))
                                 dpg.add_checkbox()
+                            with dpg.group(horizontal=True):
+                                dpg.add_text("Average over".rjust(LABEL_PAD))
+                                dpg.add_combo(
+                                    items=["Columns", "Rows"],
+                                    default_value="Columns",
+                                    width=-1,
+                                )
 
                     with dpg.child_window(
                         label="PCA",
@@ -258,11 +264,26 @@ class UI:
 
                     with dpg.child_window(width=-1, border=True):
                         with dpg.group(tag="pca_wrapper"):
-                            with dpg.plot(width=-1):
-                                dpg.add_plot_axis(dpg.mvXAxis)
+                            with dpg.plot(
+                                width=-1,
+                                tag="histogram_plot",
+                                no_highlight=True,
+                                anti_aliased=True,
+                                no_box_select=True,
+                                pan_mod=0,
+                            ):
+                                dpg.add_plot_axis(
+                                    dpg.mvXAxis,
+                                    tag="histogram_x",
+                                )
+                                dpg.add_plot_axis(
+                                    dpg.mvYAxis,
+                                    tag="histogram_y",
+                                    no_tick_labels=True,
+                                    no_tick_marks=True,
+                                )
                                 dpg.add_histogram_series(
-                                    x=[1, 2],
-                                    label="test",
+                                    x=[],
                                     parent=dpg.last_item(),
                                     bins=255,
                                     density=True,
@@ -348,18 +369,42 @@ class UI:
         dpg.bind_item_handler_registry(self.window_tag, "window_resize_handler")
 
     def image_select_callback(self, sender, data):
-        print(sender, data)
+        image_label: str | None = dpg.get_item_user_data(sender)
+        if image_label is None:
+            return
+        self.project.current_image = image_label
+        self.update_histogram_plot()
+        print(self.project.images[self.project.current_image].metadata)
 
     def window_resize_callback(self, _sender, _data):
-        if not self.image_labels:
+        if not self.project.images.keys():
             return
 
         available_width = dpg.get_item_rect_size("gallery_collapsible")[0] - 160
 
         image_width = available_width // self.image_gallery_n_columns
 
-        for label in self.image_labels:
+        for label in self.project.images.keys():
             dpg.set_item_width(f"image_{label}_wrapper", image_width)
             dpg.set_item_height(f"image_{label}_button", image_width)
 
         self.collapsible_clicked_callback()
+
+    def update_histogram_plot(self):
+        if (img := self.project.current_image) is None:
+            return
+        image = self.project.images[img]
+        image.load_hsi_image()
+        with dpg.mutex():
+            dpg.delete_item("histogram_y", children_only=True)
+            dpg.add_histogram_series(
+                image.histogram_data,
+                parent="histogram_y",
+                bins=1000,
+                density=True,
+                max_range=255,
+                min_range=0,
+                outliers=True,
+            )
+            dpg.fit_axis_data("histogram_x")
+            dpg.fit_axis_data("histogram_y")
