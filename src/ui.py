@@ -1,3 +1,5 @@
+from operator import call
+
 from matplotlib.style import available
 from numpy import imag, isin
 
@@ -10,7 +12,7 @@ LABEL_PAD = 23
 @dataclass
 class UI:
     project: Project = field(init=False)
-    pca_images: list = field(init=False, default_factory=list)
+    pca_images: list[float] | None = field(init=False, default_factory=list)
     window_tag: Literal["primary_window"] = field(init=False, default="primary_window")
     gallery_tag: Literal["image_gallery"] = field(init=False, default="image_gallery")
     image_gallery_n_columns: Literal[9] = 9
@@ -289,6 +291,7 @@ class UI:
                                 max_value=20,
                                 min_clamped=True,
                                 max_clamped=True,
+                                on_enter=True,
                                 width=-1,
                             )
                         with dpg.group(horizontal=True):
@@ -303,6 +306,16 @@ class UI:
                                 clamped=True,
                                 default_value=1,
                                 width=-1,
+                            )
+
+                        with dpg.group(horizontal=True):
+                            dpg.add_text(default_value="Apply CLAHE".rjust(LABEL_PAD))
+                            dpg.add_checkbox(
+                                tag="apply_clahe_checkbox",
+                                default_value=False,
+                                callback=lambda s, d: self.update_pca_images(
+                                    self.project.current_image
+                                ),
                             )
 
                 with dpg.child_window(
@@ -365,6 +378,8 @@ class UI:
                 show=False,
                 autosize=True,
                 no_resize=True,
+                width=512,
+                height=512,
             ):
                 ...
 
@@ -443,10 +458,10 @@ class UI:
 
         if gallery_visible and pca_visible:
             dpg.configure_item("gallery_wrapper", height=vp_height // 2)
-            dpg.configure_item("pca_wrapper", height=vp_height // 2 - 100)
+            dpg.configure_item("pca_wrapper", height=-1)
 
         if not gallery_visible and pca_visible:
-            dpg.configure_item("pca_wrapper", height=vp_height // 2 - 100)
+            dpg.configure_item("pca_wrapper", height=-1)
 
     def bind_item_handlers(self):
         dpg.bind_item_handler_registry(
@@ -470,34 +485,40 @@ class UI:
 
         self.hide_loading_indicator()
 
-    def update_pca_images(self, current_image: tuple[str, Image]):
-        dpg.show_item("pca_image_window")
-        if dpg.does_item_exist("pca_images"):
-            dpg.delete_item("pca_images")
+    def update_pca_images(self, current_image: tuple[str, Image] | None):
+        with dpg.mutex():
+            if current_image is None:
+                return
+            dpg.show_item("pca_image_window")
+            if dpg.does_item_exist("pca_images"):
+                dpg.delete_item("pca_images")
 
-        if dpg.does_item_exist("pca_image"):
-            dpg.delete_item("pca_image")
-        with dpg.texture_registry():
-            dpg.add_dynamic_texture(
-                512,
-                512,
-                np.ones((512, 512, 4)).flatten().tolist(),
-                tag="pca_images",
+            if dpg.does_item_exist("pca_image"):
+                dpg.delete_item("pca_image")
+            with dpg.texture_registry():
+                dpg.add_dynamic_texture(
+                    512,
+                    512,
+                    np.ones((512, 512, 4)).flatten().tolist(),
+                    tag="pca_images",
+                )
+
+            dpg.add_image(
+                "pca_images",
+                parent="pca_image_window",
+                tag="pca_image",
             )
 
-        dpg.add_image(
-            "pca_images",
-            parent="pca_image_window",
-            tag="pca_image",
-        )
+            _, image = current_image
+            image.reduce_dimensions(dpg.get_value("pca_n_components"))
+            dpg.configure_item(
+                "pca_slider", max_value=dpg.get_value("pca_n_components")
+            )
+            if image.pca_images is None:
+                return
 
-        _, image = current_image
-        image.reduce_dimensions(dpg.get_value("pca_n_components"))
-        dpg.configure_item("pca_slider", max_value=dpg.get_value("pca_n_components"))
-        if image.pca_images is None:
-            return
-
-        self.pca_images = image.pca_images
+            apply_clahe = dpg.get_value("apply_clahe_checkbox")
+            self.pca_images = image.pca_images(apply_clahe)
         self.pca_component_slider_callback(None, dpg.get_value("pca_slider"))
 
     def pca_component_slider_callback(self, sender, data):

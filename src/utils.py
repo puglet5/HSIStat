@@ -15,6 +15,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import spectral.io.envi as envi
+from matplotlib import axes
 from pandas import DataFrame
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import minmax_scale
@@ -51,6 +52,13 @@ def xml_to_dict(r: ET.Element, root=True):
             d[x.tag] = []  # type:ignore
         d[x.tag].append(xml_to_dict(x, False))  # type:ignore
     return d
+
+
+def rotate_image(img, rot_angle=0):
+    (h, w) = img.shape[:2]
+    center = (w // 2, h // 2)
+    rotation_matrix = cv2.getRotationMatrix2D(center, rot_angle, 1)
+    return cv2.warpAffine(img, rotation_matrix, (w, h))
 
 
 @dataclass
@@ -92,13 +100,28 @@ class Image:
             xml = ET.fromstringlist(f.readlines())
             self.raw_metadata = xml_to_dict(xml)
 
-    @property
-    def pca_images(self):
+    def _pca_to_image(self, to_convert, apply_clahe: bool):
+        img = to_convert.reshape(512, 512, 1)
+
+        if apply_clahe:
+            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            img = (img * 255).astype(np.uint8)
+            img = clahe.apply(img)
+            img = img.astype(np.float32) / 255
+
+        img = rotate_image(
+            cv2.cvtColor(img, cv2.COLOR_GRAY2RGBA),
+            -90,
+        )
+
+        return img.flatten().tolist()
+
+    def pca_images(self, apply_clahe):
         if self.pca_data is None:
             return
 
         return [
-            cv2.cvtColor(self.pca_data[:, i], cv2.COLOR_GRAY2RGBA).flatten().tolist()
+            self._pca_to_image(self.pca_data[:, i], apply_clahe)
             for i in range(self.pca_data.shape[-1])
         ]
 
