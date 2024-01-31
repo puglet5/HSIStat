@@ -146,11 +146,11 @@ def load_png_image(path: str):
 
 @dataclass
 class Project:
-    folder: str
+    directory: str
     image_labels: list[str] = field(init=False)
 
     def __post_init__(self):
-        if not os.path.exists(self.folder):
-            return None
-
-        self.image_labels = os.listdir(self.folder)
+        if not os.path.exists(self.directory):
+            self.image_labels = []
+        else:
+            self.image_labels = os.listdir(self.directory)
