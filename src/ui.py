@@ -1,5 +1,5 @@
 from matplotlib.style import available
-from numpy import imag
+from numpy import imag, isin
 
 from utils import *
 
@@ -10,7 +10,7 @@ LABEL_PAD = 23
 @dataclass
 class UI:
     project: Project = field(init=False)
-    current_image: str = field(init=False)
+    pca_images: list = field(init=False, default_factory=list)
     window_tag: Literal["primary_window"] = field(init=False, default="primary_window")
     gallery_tag: Literal["image_gallery"] = field(init=False, default="image_gallery")
     image_gallery_n_columns: Literal[9] = 9
@@ -51,21 +51,44 @@ class UI:
                     dpg.mvStyleVar_ButtonTextAlign, 0.5, category=dpg.mvThemeCat_Core
                 )
 
+            with dpg.theme_component(item_type=dpg.mvHistogramSeries):
+                dpg.add_theme_color(
+                    dpg.mvPlotCol_Line,
+                    (20, 119, 200, 255),
+                    category=dpg.mvThemeCat_Plots,
+                )
+                dpg.add_theme_color(
+                    dpg.mvPlotCol_Fill,
+                    (20, 119, 200, 255),
+                    category=dpg.mvThemeCat_Plots,
+                )
+
         with dpg.theme() as self.button_theme:
             with dpg.theme_component(dpg.mvButton):
                 dpg.add_theme_color(
-                    dpg.mvThemeCol_Button, (37, 37, 38), category=dpg.mvThemeCat_Core
+                    dpg.mvThemeCol_Button,
+                    (37, 37, 38, -255),
+                    category=dpg.mvThemeCat_Core,
                 )
                 dpg.add_theme_color(
                     dpg.mvThemeCol_ButtonActive,
-                    (37, 37, 38),
+                    (37, 37, 38, -255),
                     category=dpg.mvThemeCat_Core,
                 )
                 dpg.add_theme_color(
                     dpg.mvThemeCol_ButtonHovered,
-                    (37, 37, 38),
+                    (37, 37, 38, -255),
                     category=dpg.mvThemeCat_Core,
                 )
+
+    def update_pca_component_spec(self, sender, data):
+        dpg.configure_item("pca_slider", max_value=data)
+        current_pca_component = dpg.get_value("pca_slider")
+        if current_pca_component > data:
+            dpg.set_value("pca_slider", data)
+
+        if self.project.current_image is not None:
+            self.update_pca_images(self.project.current_image)
 
     def bind_themes(self):
         dpg.bind_theme(self.global_theme)
@@ -83,13 +106,14 @@ class UI:
                 tag=f"image_gallery_row_{i}", parent=self.gallery_tag, horizontal=True
             )
 
-        for i, label in enumerate(self.project.images.keys()):
-            width, height, channels, data = dpg.load_image(
-                f"{self.project.directory}/{label}/{label}.png"
-            )
-
+        for i, (label, image) in enumerate(self.project.images.items()):
             with dpg.texture_registry():
-                dpg.add_static_texture(width, height, data, tag=f"image_{label}")
+                dpg.add_static_texture(
+                    512,
+                    512,
+                    image.png_image,
+                    tag=f"image_{label}",
+                )
 
             with dpg.group(
                 parent=f"image_gallery_row_{i//self.image_gallery_n_columns}",
@@ -106,10 +130,13 @@ class UI:
                 )
                 dpg.add_button(label=label, indent=2)
                 dpg.bind_item_theme(dpg.last_item(), self.button_theme)
+                with dpg.tooltip(parent=f"image_{label}_button"):
+                    dpg.add_text(f"Integration time: {image.integration_time} ms")
 
     def setup_dev(self):
         self.project = Project(dpg.get_value("project_directory"))
         self.populate_image_gallery()
+        self.window_resize_callback()
 
     def setup_layout(self):
         with dpg.window(
@@ -250,6 +277,33 @@ class UI:
                                 default_value="auto",
                                 width=-1,
                             )
+                        with dpg.group(horizontal=True):
+                            dpg.add_text(
+                                default_value="Number of components".rjust(LABEL_PAD)
+                            )
+                            dpg.add_input_int(
+                                tag="pca_n_components",
+                                default_value=10,
+                                callback=self.update_pca_component_spec,
+                                min_value=3,
+                                max_value=20,
+                                min_clamped=True,
+                                max_clamped=True,
+                                width=-1,
+                            )
+                        with dpg.group(horizontal=True):
+                            dpg.add_text(
+                                default_value="Shown component".rjust(LABEL_PAD)
+                            )
+                            dpg.add_slider_int(
+                                tag="pca_slider",
+                                callback=self.pca_component_slider_callback,
+                                min_value=1,
+                                max_value=10,
+                                clamped=True,
+                                default_value=1,
+                                width=-1,
+                            )
 
                 with dpg.child_window(
                     border=False, width=-1, height=-1, tag="images_wrapper"
@@ -263,8 +317,9 @@ class UI:
                             dpg.add_group(tag=self.gallery_tag)
 
                     with dpg.child_window(width=-1, border=True):
-                        with dpg.group(tag="pca_wrapper"):
+                        with dpg.group(tag="pca_wrapper", horizontal=True):
                             with dpg.plot(
+                                show=False,
                                 width=-1,
                                 tag="histogram_plot",
                                 no_highlight=True,
@@ -304,6 +359,15 @@ class UI:
             ):
                 ...
 
+            with dpg.window(
+                label="PCA",
+                tag="pca_image_window",
+                show=False,
+                autosize=True,
+                no_resize=True,
+            ):
+                ...
+
     def on_key_ctrl(self):
         if dpg.is_key_pressed(dpg.mvKey_Q):
             dpg.stop_dearpygui()
@@ -320,6 +384,28 @@ class UI:
             elif dpg.is_key_pressed(dpg.mvKey_M):
                 menubar_visible = dpg.get_item_configuration(self.window_tag)["menubar"]
                 dpg.configure_item(self.window_tag, menubar=(not menubar_visible))
+
+    def show_loading_indicator(self):
+        w, h = dpg.get_viewport_width(), dpg.get_viewport_height()
+        with dpg.window(
+            modal=True,
+            no_background=True,
+            no_move=True,
+            no_scrollbar=True,
+            no_title_bar=True,
+            no_close=True,
+            no_resize=True,
+            tag="loading_indicator",
+            show=True,
+            pos=(w // 2 - 100, h // 2 - 100),
+        ):
+            dpg.add_loading_indicator(radius=20)
+            dpg.add_button(label="Loading hyperspectral data...", indent=30)
+            dpg.bind_item_theme(dpg.last_item(), self.button_theme)
+
+    def hide_loading_indicator(self):
+        if dpg.does_item_exist("loading_indicator"):
+            dpg.delete_item("loading_indicator")
 
     def setup_handler_registries(self):
         with dpg.handler_registry():
@@ -357,10 +443,10 @@ class UI:
 
         if gallery_visible and pca_visible:
             dpg.configure_item("gallery_wrapper", height=vp_height // 2)
-            dpg.configure_item("pca_wrapper", height=-1)
+            dpg.configure_item("pca_wrapper", height=vp_height // 2 - 100)
 
         if not gallery_visible and pca_visible:
-            dpg.configure_item("pca_wrapper", height=-1)
+            dpg.configure_item("pca_wrapper", height=vp_height // 2 - 100)
 
     def bind_item_handlers(self):
         dpg.bind_item_handler_registry(
@@ -369,31 +455,85 @@ class UI:
         dpg.bind_item_handler_registry(self.window_tag, "window_resize_handler")
 
     def image_select_callback(self, sender, data):
+        dpg.show_item("histogram_plot")
         image_label: str | None = dpg.get_item_user_data(sender)
         if image_label is None:
             return
-        self.project.current_image = image_label
-        self.update_histogram_plot()
-        print(self.project.images[self.project.current_image].metadata)
+        _, img = self.project.set_current_image(image_label)
+        assert isinstance(self.project.current_image, tuple)
+        if not img.pca_calculated or not img.hsi_image_loaded:
+            self.show_loading_indicator()
 
-    def window_resize_callback(self, _sender, _data):
+        self.update_histogram_plot()
+        self.update_channels_images()
+        self.update_pca_images(self.project.current_image)
+
+        self.hide_loading_indicator()
+
+    def update_pca_images(self, current_image: tuple[str, Image]):
+        dpg.show_item("pca_image_window")
+        if dpg.does_item_exist("pca_images"):
+            dpg.delete_item("pca_images")
+
+        if dpg.does_item_exist("pca_image"):
+            dpg.delete_item("pca_image")
+        with dpg.texture_registry():
+            dpg.add_dynamic_texture(
+                512,
+                512,
+                np.ones((512, 512, 4)).flatten().tolist(),
+                tag="pca_images",
+            )
+
+        dpg.add_image(
+            "pca_images",
+            parent="pca_image_window",
+            tag="pca_image",
+        )
+
+        _, image = current_image
+        image.reduce_dimensions(dpg.get_value("pca_n_components"))
+        dpg.configure_item("pca_slider", max_value=dpg.get_value("pca_n_components"))
+        if image.pca_images is None:
+            return
+
+        self.pca_images = image.pca_images
+        self.pca_component_slider_callback(None, dpg.get_value("pca_slider"))
+
+    def pca_component_slider_callback(self, sender, data):
+        if not dpg.does_item_exist("pca_images") or not self.pca_images:
+            return
+
+        image_index = data - 1
+
+        dpg.set_value("pca_images", self.pca_images[image_index])
+
+    def update_channels_images(self):
+        ...
+
+    def window_resize_callback(self, _sender=None, _data=None):
         if not self.project.images.keys():
             return
 
-        available_width = dpg.get_item_rect_size("gallery_collapsible")[0] - 160
-
-        image_width = available_width // self.image_gallery_n_columns
+        available_width = dpg.get_item_rect_size("gallery_collapsible")[0]
+        image_width = (available_width - 160) // self.image_gallery_n_columns
 
         for label in self.project.images.keys():
             dpg.set_item_width(f"image_{label}_wrapper", image_width)
             dpg.set_item_height(f"image_{label}_button", image_width)
 
+        w, h = dpg.get_viewport_width(), dpg.get_viewport_height()
+        if dpg.does_item_exist("loading_indicator"):
+            dpg.configure_item("loading_indicator", pos=(w // 2 - 100, h // 2 - 100))
+
         self.collapsible_clicked_callback()
 
+        dpg.set_item_width("histogram_plot", available_width)
+
     def update_histogram_plot(self):
-        if (img := self.project.current_image) is None:
+        if (self.project.current_image) is None:
             return
-        image = self.project.images[img]
+        image = self.project.images[self.project.current_image[0]]
         image.load_hsi_image()
         with dpg.mutex():
             dpg.delete_item("histogram_y", children_only=True)

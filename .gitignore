@@ -164,4 +164,4 @@ cython_debug/
 *.dist/
 *.build/
 *.onefile-build/
-sandbox/*
+**/sandbox/**

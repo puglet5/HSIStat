@@ -4,37 +4,22 @@ import time
 import xml.etree.ElementTree as ET
 from copy import copy
 from dataclasses import dataclass, field
-from functools import wraps
+from functools import cached_property, wraps
 from pathlib import Path
-from typing import (
-    Any,
-    Callable,
-    Generator,
-    Literal,
-    NotRequired,
-    ParamSpec,
-    TypedDict,
-    TypeVar,
-)
+from typing import Literal, ParamSpec, TypeVar
 
 import coloredlogs
 import cv2
 import dearpygui.dearpygui as dpg
-import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 import spectral.io.envi as envi
-from cv2.typing import MatLike
-from matplotlib import pyplot as plt
 from pandas import DataFrame
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import minmax_scale
 from spectral.io.envi import BilFile
 
-matplotlib.use("agg")
-plt.ioff()
-pd.set_option("future.no_silent_downcasting", True)
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 logging.basicConfig(filename=Path(ROOT_DIR, "log/main.log"), filemode="a")
 coloredlogs.install(level="DEBUG")
@@ -63,60 +48,72 @@ def xml_to_dict(r: ET.Element, root=True):
         d["_text"] = r.text
     for x in r.findall("./*"):
         if x.tag not in d:
-            d[x.tag] = []
-        d[x.tag].append(xml_to_dict(x, False))
+            d[x.tag] = []  # type:ignore
+        d[x.tag].append(xml_to_dict(x, False))  # type:ignore
     return d
 
 
 @dataclass
 class Image:
     path: str
-    png_image: MatLike = field(init=False)
+    png_image: list[float] = field(init=False)
     hsi_image: npt.NDArray[np.float_] = field(
         init=False, default_factory=lambda: np.array([])
     )
-    hsi_image_loaded: bool = False
+    hsi_image_loaded: bool = field(init=False, default=False)
+    pca_calculated: bool = field(init=False, default=False)
     label: str = field(init=False)
-    pca: PCA = field(init=False, default=PCA(n_components=10))
-    metadata: dict[str, str] = field(init=False, default_factory=dict)
+    pca: PCA = field(init=False, default=PCA(n_components=10, svd_solver="arpack"))
+    pca_data: npt.NDArray | None = field(init=False, default=None)
+    pca_dimensions: int = field(init=False, default=0)
+    raw_metadata: dict[str, str] = field(init=False, default_factory=dict)
 
     def __post_init__(self):
         self.label = self.path.split("/")[-1]
         self.load_png_image()
         self.parse_xml_metadata()
 
-    @property
+    @cached_property
     def histogram_data(self):
         data = self.hsi_image.mean(axis=1).flatten()
         data = data / np.max(data) * 255
 
         return data.tolist()
 
+    @cached_property
+    def integration_time(self):
+        return self.raw_metadata["properties"]["dataset"][0]["key"][-1][  # type:ignore
+            "_text"
+        ]
+
     def parse_xml_metadata(self):
         xml_file = f"{self.path}/metadata/{self.label}.xml"
         with open(xml_file, "r") as f:
             xml = ET.fromstringlist(f.readlines())
-            self.metadata = xml_to_dict(xml)
+            self.raw_metadata = xml_to_dict(xml)
+
+    @property
+    def pca_images(self):
+        if self.pca_data is None:
+            return
+
+        return [
+            cv2.cvtColor(self.pca_data[:, i], cv2.COLOR_GRAY2RGBA).flatten().tolist()
+            for i in range(self.pca_data.shape[-1])
+        ]
 
     def reduce_dimensions(self, dims: int):
-        reducer: PCA = PCA(n_components=10)
-        df = self.extract_pixels(self.hsi_image)
-        dt = reducer.fit_transform(df.iloc[:, :-1].values)
+        if self.pca_dimensions == dims:
+            return
 
-        q = pd.DataFrame(data=dt)
-        q.columns = [f"PC-{i}" for i in range(1, dims + 1)]
-        pca_images = np.zeros(
-            shape=[self.hsi_image.shape[0], self.hsi_image.shape[1], dims]
-        )
+        self.pca_dimensions = dims
+
+        reducer = self.pca = PCA(n_components=dims, svd_solver="arpack")
+        reduced = reducer.fit_transform(self.hsi_image.reshape(-1, 204))
         for i in range(dims):
-            arr: npt.NDArray[float_] = np.array(q.loc[:, f"PC-{i + 1}"].values.reshape(res_data_array.shape[0], res_data_array.shape[1]))  # type: ignore
-            arr = arr - np.min(arr)
-            arr = arr / np.max(arr)
-            pca_images[:, :, i] = arr
+            minmax_scale(reduced[:, i], feature_range=(0, 1), copy=False)
 
-        loadings = pd.DataFrame(reducer.components_.T, columns=q.columns)
-
-        return pca_images, loadings
+        self.pca_data = reduced
 
     def load_hsi_image(self):
         if self.hsi_image_loaded:
@@ -150,7 +147,11 @@ class Image:
         self.hsi_image_loaded = True
 
     def load_png_image(self):
-        self.png_image = cv2.imread(f"{self.path}/{self.label}.png")
+        rgba_data = cv2.imread(f"{self.path}/{self.label}.png", cv2.IMREAD_UNCHANGED)
+
+        bgra_data = cv2.cvtColor(rgba_data, cv2.COLOR_RGBA2BGRA)
+
+        self.png_image = np.divide(bgra_data.flatten(), 255).tolist()
 
     def radiometric_correction(
         self,
@@ -167,18 +168,12 @@ class Image:
 
         return (data_array - dark_scaled) / (white_scaled - dark_scaled)
 
-    def extract_pixels(self, data):
-        q = data.reshape(-1, data.shape[2])
-        df = DataFrame(q)
-        df.columns = [f"band{i}" for i in range(1, 1 + data.shape[2])]
-        return df
-
 
 @dataclass
 class Project:
     directory: str
     images: dict[str, Image] = field(init=False, default_factory=dict)
-    current_image: str | None = field(init=False, default=None)
+    current_image: tuple[str, Image] | None = field(init=False, default=None)
 
     def __post_init__(self):
         if not os.path.exists(self.directory):
@@ -186,3 +181,7 @@ class Project:
         else:
             for label in os.listdir(self.directory):
                 self.images[label] = Image(f"{self.directory}/{label}")
+
+    def set_current_image(self, label: str):
+        self.current_image = (label, self.images[label])
+        return self.current_image
