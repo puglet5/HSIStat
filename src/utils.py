@@ -4,19 +4,16 @@ import time
 import xml.etree.ElementTree as ET
 from copy import copy
 from dataclasses import dataclass, field
+from enum import Enum
 from functools import cached_property, wraps
 from pathlib import Path
-from typing import Literal, ParamSpec, TypeVar
+from typing import Any, Literal, ParamSpec, TypeVar
 
 import coloredlogs
 import cv2
-import dearpygui.dearpygui as dpg
 import numpy as np
 import numpy.typing as npt
-import pandas as pd
 import spectral.io.envi as envi
-from matplotlib import axes
-from pandas import DataFrame
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import minmax_scale
 from spectral.io.envi import BilFile
@@ -61,10 +58,18 @@ def rotate_image(img, rot_angle=0):
     return cv2.warpAffine(img, rotation_matrix, (w, h))
 
 
+class ImageType(Enum):
+    HSI = 1
+    PNG = 2
+    CHANNEL = 3
+    PCA = 4
+    OTHER = 5
+
+
 @dataclass
 class Image:
     path: str
-    png_image: list[float] = field(init=False)
+    png_image: npt.NDArray[np.float_] = field(init=False)
     hsi_image: npt.NDArray[np.float_] = field(
         init=False, default_factory=lambda: np.array([])
     )
@@ -74,25 +79,46 @@ class Image:
     pca: PCA = field(init=False, default=PCA(n_components=10, svd_solver="arpack"))
     pca_data: npt.NDArray | None = field(init=False, default=None)
     pca_dimensions: int = field(init=False, default=0)
-    raw_metadata: dict[str, str] = field(init=False, default_factory=dict)
+    raw_metadata: dict[str, Any] = field(init=False, default_factory=dict)
 
     def __post_init__(self):
         self.label = self.path.split("/")[-1]
         self.load_png_image()
         self.parse_xml_metadata()
 
-    @cached_property
-    def histogram_data(self):
-        data = self.hsi_image.mean(axis=1).flatten()
+    def histogram_data(
+        self, source: npt.NDArray[np.float_], axis, source_type: ImageType
+    ):
+        if source_type != ImageType.HSI:
+            source = source[:, :, :-1]
+        data = source.mean(axis=axis).flatten()
         data = data / np.max(data) * 255
 
         return data.tolist()
 
+    def channel_images(self):
+        if self.hsi_image is None:
+            return
+
+        images = np.array(
+            [
+                self._channel_to_image(self.hsi_image[:, :, i])
+                for i in range(self.hsi_image.shape[-1])
+            ]
+        )
+        return images
+
+    def _channel_to_image(self, to_convert):
+        img = to_convert.reshape(512, 512, 1)
+        return rotate_image(cv2.cvtColor(img, cv2.COLOR_GRAY2RGBA), -90)
+
     @cached_property
     def integration_time(self):
-        return self.raw_metadata["properties"]["dataset"][0]["key"][-1][  # type:ignore
-            "_text"
-        ]
+        return self.raw_metadata["properties"]["dataset"][0]["key"][-1]["_text"]
+
+    @cached_property
+    def datetime(self):
+        return self.raw_metadata["properties"]["dataset"][0]["key"][0]["_text"]
 
     def parse_xml_metadata(self):
         xml_file = f"{self.path}/metadata/{self.label}.xml"
@@ -114,28 +140,29 @@ class Image:
             -90,
         )
 
-        return img.flatten().tolist()
+        return img
 
     def pca_images(self, apply_clahe):
         if self.pca_data is None:
             return
 
-        return [
-            self._pca_to_image(self.pca_data[:, i], apply_clahe)
-            for i in range(self.pca_data.shape[-1])
-        ]
+        return np.array(
+            [
+                self._pca_to_image(self.pca_data[:, i], apply_clahe)
+                for i in range(self.pca_data.shape[-1])
+            ]
+        )
 
-    def reduce_dimensions(self, dims: int):
+    def reduce_hsi_dimensions(self, dims: int):
         if self.pca_dimensions == dims:
             return
-
-        self.pca_dimensions = dims
 
         reducer = self.pca = PCA(n_components=dims, svd_solver="arpack")
         reduced = reducer.fit_transform(self.hsi_image.reshape(-1, 204))
         for i in range(dims):
             minmax_scale(reduced[:, i], feature_range=(0, 1), copy=False)
 
+        self.pca_dimensions = dims
         self.pca_data = reduced
 
     def load_hsi_image(self):
@@ -171,10 +198,9 @@ class Image:
 
     def load_png_image(self):
         rgba_data = cv2.imread(f"{self.path}/{self.label}.png", cv2.IMREAD_UNCHANGED)
-
         bgra_data = cv2.cvtColor(rgba_data, cv2.COLOR_RGBA2BGRA)
 
-        self.png_image = np.divide(bgra_data.flatten(), 255).tolist()
+        self.png_image = np.divide(bgra_data, 255)
 
     def radiometric_correction(
         self,
