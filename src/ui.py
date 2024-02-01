@@ -1,10 +1,12 @@
+from dataclasses import dataclass, field
 from functools import partial
-from types import NoneType
 from typing import Literal
 
 import dearpygui.dearpygui as dpg
+import numpy as np
+import numpy.typing as npt
 
-from utils import *
+from src.utils import ImageType, Project, loading_indicator, log_exec_time, logger
 
 TOOLTIP_DELAY_SEC = 0.1
 LABEL_PAD = 23
@@ -45,8 +47,8 @@ class UI:
             self.stop()
 
     def stop(self):
-        dpg.destroy_context()
         dpg.stop_dearpygui()
+        dpg.destroy_context()
 
     def setup_themes(self):
         with dpg.theme() as self.global_theme:
@@ -101,7 +103,7 @@ class UI:
                     category=dpg.mvThemeCat_Core,
                 )
 
-    def update_pca_component_spec(self, sender, data):
+    def update_pca_component_spec(self, _sender, data):
         dpg.configure_item("pca_slider", max_value=data)
         current_pca_component = dpg.get_value("pca_slider")
         if current_pca_component > data:
@@ -119,21 +121,28 @@ class UI:
                 parent=self.gallery_tag,
                 default_value="No images found in specified directory",
             )
-        for i in range(
-            len(self.project.images.keys()) // self.image_gallery_n_columns + 1
-        ):
-            dpg.add_group(
-                tag=f"image_gallery_row_{i}", parent=self.gallery_tag, horizontal=True
-            )
+
+        if dpg.does_item_exist("image_gallery_wrapper"):
+            dpg.delete_item("image_gallery_wrapper")
+
+        with dpg.group(tag="image_gallery_wrapper", parent=self.gallery_tag):
+            for i in range(
+                len(self.project.images.keys()) // self.image_gallery_n_columns + 1
+            ):
+                dpg.add_group(
+                    tag=f"image_gallery_row_{i}",
+                    horizontal=True,
+                )
 
         for i, (label, image) in enumerate(self.project.images.items()):
-            with dpg.texture_registry():
-                dpg.add_static_texture(
-                    512,
-                    512,
-                    image.png_image.flatten().tolist(),
-                    tag=f"image_{label}",
-                )
+            if not dpg.does_item_exist(f"image_{label}"):
+                with dpg.texture_registry():
+                    dpg.add_static_texture(
+                        512,
+                        512,
+                        image.png_image.flatten().tolist(),
+                        tag=f"image_{label}",
+                    )
 
             with dpg.group(
                 parent=f"image_gallery_row_{i//self.image_gallery_n_columns}",
@@ -162,7 +171,7 @@ class UI:
         self.populate_image_gallery()
         self.window_resize_callback()
 
-    def directory_picker_callback(self, sender, data):
+    def directory_picker_callback(self, _sender, data):
         dpg.set_value("project_directory", data["file_path_name"])
         self.setup_project()
 
@@ -509,9 +518,27 @@ class UI:
             ):
                 ...
 
+            with dpg.texture_registry():
+                dpg.add_raw_texture(
+                    512,
+                    512,
+                    np.ones((512, 512, 4)),  # type:ignore
+                    tag="pca_images",
+                )
+
+            with dpg.texture_registry():
+                dpg.add_raw_texture(
+                    512,
+                    512,
+                    np.ones((512, 512, 4)),  # type:ignore
+                    tag="channel_images",
+                )
+
     def on_key_ctrl(self):
         if dpg.is_key_pressed(dpg.mvKey_Q):
             dpg.stop_dearpygui()
+            dpg.destroy_context()
+
         if dpg.is_key_pressed(dpg.mvKey_Comma):
             if not dpg.is_item_visible("settings_modal"):
                 self.show_settings_modal()
@@ -524,7 +551,7 @@ class UI:
                     dpg.show_tool(dpg.mvTool_Metrics)
             elif dpg.is_key_pressed(dpg.mvKey_M):
                 menubar_visible = dpg.get_item_configuration(self.window_tag)["menubar"]
-                dpg.configure_item(self.window_tag, menubar=(not menubar_visible))
+                dpg.configure_item(self.window_tag, menubar=not menubar_visible)
 
     def close_results_window(self):
         if dpg.does_item_exist("results_window"):
@@ -581,7 +608,7 @@ class UI:
         dpg.bind_item_handler_registry(self.window_tag, "window_resize_handler")
 
     @partial(loading_indicator, message="Loading hyperspectral data...")
-    def image_select_callback(self, sender, data):
+    def image_select_callback(self, sender, _data):
         for i in self.project.images:
             dpg.bind_item_theme(f"image_{i}_button", self.normal_button_theme)
         dpg.bind_item_theme(sender, self.active_button_theme)
@@ -600,23 +627,31 @@ class UI:
 
     @partial(loading_indicator, message="Applying PCA...")
     def update_pca_images(self):
+        if not hasattr(self, "project"):
+            return
         if self.project.current_image is None:
             return
         dpg.show_item("results_window")
-        if dpg.does_item_exist("pca_images"):
-            dpg.delete_item("pca_images")
 
-        if dpg.does_item_exist("pca_image"):
-            dpg.delete_item("pca_image")
-        with dpg.texture_registry():
-            dpg.add_raw_texture(
-                512,
-                512,
-                np.ones((512, 512, 4)),  # type:ignore
-                tag="pca_images",
-            )
-
-        dpg.add_image("pca_images", parent="pca_image_tab", tag="pca_image", show=False)
+        if not dpg.does_item_exist("pca_image_plot"):
+            with dpg.plot(
+                tag="pca_image_plot",
+                parent="pca_image_tab",
+                width=512,
+                height=512,
+                equal_aspects=True,
+            ):
+                dpg.add_plot_axis(dpg.mvXAxis, no_tick_labels=True, no_tick_marks=True)
+                with dpg.plot_axis(
+                    dpg.mvYAxis, no_tick_labels=True, no_tick_marks=True
+                ):
+                    dpg.add_image_series(
+                        "pca_images",
+                        [0, 0],
+                        [512, 512],
+                        tag="pca_image",
+                        show=False,
+                    )
 
         _, image = self.project.current_image
         image.reduce_hsi_dimensions(dpg.get_value("pca_n_components"))
@@ -628,7 +663,7 @@ class UI:
         self.pca_component_slider_callback(None, dpg.get_value("pca_slider"))
         dpg.show_item("pca_image")
 
-    def pca_component_slider_callback(self, sender, data):
+    def pca_component_slider_callback(self, _sender, data):
         if not dpg.does_item_exist("pca_images"):
             return
         if not isinstance(self.pca_images, np.ndarray):
@@ -642,7 +677,7 @@ class UI:
         if dpg.get_value("histogram_source_combo") == "PCA":
             self.update_histogram_plot()
 
-    def channel_slider_callback(self, sender, data):
+    def channel_slider_callback(self, _sender, data):
         if not dpg.does_item_exist("channel_images"):
             return
         if self.project.current_image is None:
@@ -667,26 +702,26 @@ class UI:
         if self.project.current_image is None:
             return
         dpg.show_item("results_window")
-        if dpg.does_item_exist("channel_images"):
-            dpg.delete_item("channel_images")
 
-        if dpg.does_item_exist("channel_image"):
-            dpg.delete_item("channel_image")
-
-        with dpg.texture_registry():
-            dpg.add_raw_texture(
-                512,
-                512,
-                np.ones((512, 512, 4)),  # type:ignore
-                tag="channel_images",
-            )
-
-        dpg.add_image(
-            "channel_images",
-            parent="channel_image_tab",
-            tag="channel_image",
-            show=False,
-        )
+        if not dpg.does_item_exist("channel_image_plot"):
+            with dpg.plot(
+                parent="channel_image_tab",
+                width=512,
+                height=512,
+                equal_aspects=True,
+                tag="channel_image_plot",
+            ):
+                dpg.add_plot_axis(dpg.mvXAxis, no_tick_labels=True, no_tick_marks=True)
+                with dpg.plot_axis(
+                    dpg.mvYAxis, no_tick_labels=True, no_tick_marks=True
+                ):
+                    dpg.add_image_series(
+                        "channel_images",
+                        [0, 0],
+                        [512, 512],
+                        tag="channel_image",
+                        show=False,
+                    )
 
         _, image = self.project.current_image
         if (images := image.channel_images()) is None:

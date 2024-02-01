@@ -9,16 +9,16 @@ from dataclasses import dataclass, field
 from enum import Enum
 from functools import cached_property, wraps
 from pathlib import Path
-from typing import Any, Callable, Literal, ParamSpec, TypeVar
+from typing import Any, Callable, ParamSpec, TypeVar
 
 import coloredlogs
 import cv2
 import dearpygui.dearpygui as dpg
 import numpy as np
 import numpy.typing as npt
-import spectral.io.envi as envi
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import minmax_scale
+from spectral.io import envi
 from spectral.io.envi import BilFile
 
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -30,7 +30,7 @@ T = TypeVar("T")
 P = ParamSpec("P")
 
 
-def log_exec_time(f: Callable[P, T]):  # type:ignore
+def log_exec_time(f: Callable[P, T]) -> Callable[P, T]:  # type:ignore
     @wraps(f)
     def _wrapper(*args, **kwargs):
         start_time = time.perf_counter()
@@ -50,7 +50,7 @@ def hide_loading_indicator():
         dpg.hide_item("loading_indicator")
 
 
-def loading_indicator(f: Callable[P, T], message: str):  # type:ignore
+def loading_indicator(f: Callable[P, T], message: str) -> Callable[P, T]:  # type:ignore
     @wraps(f)
     def _wrapper(*args, **kwargs):
         dpg.configure_item("loading_indicator_message", label=message.center(30))
@@ -123,7 +123,7 @@ class Image:
     @log_exec_time
     def channel_images(self):
         if self.hsi_image is None:
-            return
+            return None
 
         images = np.array(
             [
@@ -147,7 +147,7 @@ class Image:
 
     def parse_xml_metadata(self):
         xml_file = f"{self.path}/metadata/{self.label}.xml"
-        with open(xml_file, "r") as f:
+        with open(xml_file, "r", encoding="utf8") as f:
             xml = ET.fromstringlist(f.readlines())
             self.raw_metadata = xml_to_dict(xml)
 
@@ -169,7 +169,7 @@ class Image:
 
     def pca_images(self, apply_clahe):
         if self.pca_data is None:
-            return
+            return None
 
         return np.array(
             [
@@ -248,25 +248,29 @@ class Project:
     catalog: str
     images: dict[str, Image] = field(init=False, default_factory=dict)
     current_image: tuple[str, Image] | None = field(init=False, default=None)
+    image_dirs: list[str] | None = field(init=False, default=None)
 
     def __post_init__(self):
         if not os.path.exists(self.catalog):
             self.images = {}
         else:
-            self.verify_catalog()
-            for label in os.listdir(self.catalog):
-                self.images[label] = Image(f"{self.catalog}/{label}")
+            self.validate_catalog()
+            assert self.image_dirs is not None
+            for directory in self.image_dirs:
+                self.images[directory] = Image(f"{self.catalog}/{directory}")
 
-    def verify_catalog(self):
+    def validate_catalog(self):
         catalog_contents = os.listdir(self.catalog)
         possible_image_dirs = [
             i for i in catalog_contents if os.path.isdir(f"{self.catalog}/{i}")
         ]
         if not any(possible_image_dirs):
             raise ValueError
-        for dir in possible_image_dirs:
-            if not re.match(r"\d", dir):
+        for directory in possible_image_dirs:
+            if not re.match(r"\d", directory):
                 raise ValueError
+
+        self.image_dirs = possible_image_dirs
 
     def set_current_image(self, label: str):
         self.current_image = (label, self.images[label])
