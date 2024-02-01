@@ -26,6 +26,7 @@ ipykernel = "*"
 nuitka = "*"
 memory-profiler = "*"
 typing-extensions = "*"
+pylint = "*"
 
 [requires]
 python_version = "3.11"
