@@ -1,3 +1,4 @@
+from functools import partial
 from types import NoneType
 from typing import Literal
 
@@ -145,7 +146,7 @@ class UI:
                     height=100,
                     tag=f"image_{label}_button",
                     user_data=label,
-                    callback=self.image_select_callback,
+                    callback=lambda s, d: self.image_select_callback(s, d),
                 )
                 dpg.add_button(label=label, indent=2)
                 dpg.bind_item_theme(dpg.last_item(), self.button_theme)
@@ -157,9 +158,29 @@ class UI:
                     )
 
     def setup_dev(self):
-        self.project = Project(dpg.get_value("project_directory"))
+        self.project = Project("/run/media/puglet5/HP P600/IH/stripes")
         self.populate_image_gallery()
         self.window_resize_callback()
+
+    def directory_picker_callback(self, sender, data):
+        dpg.set_value("project_directory", data["file_path_name"])
+        self.setup_project()
+
+    def setup_project(self):
+        if hasattr(self, "project"):
+            del self.project
+
+        dpg.hide_item("project_directory_error_message")
+
+        try:
+            self.project = Project(dpg.get_value("project_directory"))
+        except ValueError:
+            dpg.show_item("project_directory_error_message")
+            return
+
+        self.populate_image_gallery()
+        self.window_resize_callback()
+        self.collapsible_clicked_callback()
 
     def setup_layout(self):
         with dpg.window(
@@ -253,13 +274,30 @@ class UI:
                                 pass
                         with dpg.group(tag="project_controls", horizontal=False):
                             with dpg.group(horizontal=True):
-                                dpg.add_text("Image directory")
+                                dpg.add_text("Catalog directory".rjust(LABEL_PAD))
                                 dpg.add_input_text(
                                     tag="project_directory",
-                                    default_value="/run/media/puglet5/HP P600/IH/stripes",
-                                    width=120,
+                                    width=100,
                                 )
-                                dpg.add_button(label="Browse", width=-1)
+                                dpg.add_button(
+                                    label="Browse",
+                                    width=-1,
+                                    callback=lambda: dpg.show_item(
+                                        "project_directory_picker"
+                                    ),
+                                )
+                            with dpg.group(horizontal=True):
+                                dpg.add_text(
+                                    default_value="Chosen directory is not a catalog!".rjust(
+                                        LABEL_PAD
+                                    ),
+                                    tag="project_directory_error_message",
+                                    show=False,
+                                    color=(200, 20, 20, 255),
+                                )
+                            with dpg.group(horizontal=True):
+                                dpg.add_text("Load all images".rjust(LABEL_PAD))
+                                dpg.add_checkbox(default_value=True)
 
                     with dpg.child_window(
                         label="Images",
@@ -426,24 +464,48 @@ class UI:
                 ...
 
             with dpg.window(
-                label="PCA Results",
-                tag="pca_image_window",
+                label="Results",
+                tag="results_window",
                 show=False,
                 autosize=True,
                 no_resize=True,
                 width=512,
                 height=512,
+                no_focus_on_appearing=True,
             ):
-                ...
+                with dpg.tab_bar(tag="results_tabs"):
+                    dpg.add_tab(label="Channels", tag="channel_image_tab")
+                    dpg.add_tab(label="PCA", tag="pca_image_tab")
 
+            w, h = dpg.get_viewport_width(), dpg.get_viewport_height()
             with dpg.window(
-                label="Channels",
-                tag="channel_image_window",
-                show=False,
-                autosize=True,
+                modal=True,
+                no_background=True,
+                no_move=True,
+                no_scrollbar=True,
+                no_title_bar=True,
+                no_close=True,
                 no_resize=True,
-                width=512,
-                height=512,
+                tag="loading_indicator",
+                show=False,
+                pos=(w // 2 - 100, h // 2 - 100),
+            ):
+                dpg.add_loading_indicator(radius=20)
+                dpg.add_button(
+                    label="Loading hyperspectral data...",
+                    indent=30,
+                    tag="loading_indicator_message",
+                )
+                dpg.bind_item_theme(dpg.last_item(), self.button_theme)
+
+            with dpg.file_dialog(
+                callback=self.directory_picker_callback,
+                modal=True,
+                show=False,
+                directory_selector=True,
+                width=800,
+                height=600,
+                tag="project_directory_picker",
             ):
                 ...
 
@@ -464,36 +526,16 @@ class UI:
                 menubar_visible = dpg.get_item_configuration(self.window_tag)["menubar"]
                 dpg.configure_item(self.window_tag, menubar=(not menubar_visible))
 
-    def show_loading_indicator(self):
-        w, h = dpg.get_viewport_width(), dpg.get_viewport_height()
-        with dpg.window(
-            modal=True,
-            no_background=True,
-            no_move=True,
-            no_scrollbar=True,
-            no_title_bar=True,
-            no_close=True,
-            no_resize=True,
-            tag="loading_indicator",
-            show=True,
-            pos=(w // 2 - 100, h // 2 - 100),
-        ):
-            dpg.add_loading_indicator(radius=20)
-            dpg.add_button(label="Loading hyperspectral data...", indent=30)
-            dpg.bind_item_theme(dpg.last_item(), self.button_theme)
-
-    def close_pca_window(self):
-        if dpg.does_item_exist("pca_image_window"):
-            dpg.hide_item("pca_image_window")
-
-    def hide_loading_indicator(self):
-        if dpg.does_item_exist("loading_indicator"):
-            dpg.delete_item("loading_indicator")
+    def close_results_window(self):
+        if dpg.does_item_exist("results_window"):
+            dpg.hide_item("results_window")
 
     def setup_handler_registries(self):
         with dpg.handler_registry():
             dpg.add_key_down_handler(dpg.mvKey_Control, callback=self.on_key_ctrl)
-            dpg.add_key_down_handler(dpg.mvKey_Escape, callback=self.close_pca_window)
+            dpg.add_key_down_handler(
+                dpg.mvKey_Escape, callback=self.close_results_window
+            )
             dpg.add_key_down_handler(dpg.mvKey_Escape, callback=self.hide_modals)
 
         with dpg.item_handler_registry(tag="collapsible_clicked_handler"):
@@ -538,13 +580,12 @@ class UI:
         )
         dpg.bind_item_handler_registry(self.window_tag, "window_resize_handler")
 
+    @partial(loading_indicator, message="Loading hyperspectral data...")
     def image_select_callback(self, sender, data):
         for i in self.project.images:
             dpg.bind_item_theme(f"image_{i}_button", self.normal_button_theme)
         dpg.bind_item_theme(sender, self.active_button_theme)
         dpg.show_item("histogram_plot")
-
-        self.show_loading_indicator()
 
         image_label: str | None = dpg.get_item_user_data(sender)
         if image_label is None:
@@ -557,38 +598,32 @@ class UI:
         self.update_channels_images()
         self.update_histogram_plot()
 
-        self.hide_loading_indicator()
-
+    @partial(loading_indicator, message="Applying PCA...")
     def update_pca_images(self):
-        with dpg.mutex():
-            if self.project.current_image is None:
-                return
-            dpg.show_item("pca_image_window")
-            if dpg.does_item_exist("pca_images"):
-                dpg.delete_item("pca_images")
+        if self.project.current_image is None:
+            return
+        dpg.show_item("results_window")
+        if dpg.does_item_exist("pca_images"):
+            dpg.delete_item("pca_images")
 
-            if dpg.does_item_exist("pca_image"):
-                dpg.delete_item("pca_image")
-            with dpg.texture_registry():
-                dpg.add_raw_texture(
-                    512,
-                    512,
-                    np.ones((512, 512, 4)),  # type:ignore
-                    tag="pca_images",
-                )
-
-            dpg.add_image(
-                "pca_images", parent="pca_image_window", tag="pca_image", show=False
+        if dpg.does_item_exist("pca_image"):
+            dpg.delete_item("pca_image")
+        with dpg.texture_registry():
+            dpg.add_raw_texture(
+                512,
+                512,
+                np.ones((512, 512, 4)),  # type:ignore
+                tag="pca_images",
             )
 
-            _, image = self.project.current_image
-            image.reduce_hsi_dimensions(dpg.get_value("pca_n_components"))
-            dpg.configure_item(
-                "pca_slider", max_value=dpg.get_value("pca_n_components")
-            )
+        dpg.add_image("pca_images", parent="pca_image_tab", tag="pca_image", show=False)
 
-            apply_clahe = dpg.get_value("apply_clahe_checkbox")
-            self.pca_images = image.pca_images(apply_clahe)
+        _, image = self.project.current_image
+        image.reduce_hsi_dimensions(dpg.get_value("pca_n_components"))
+        dpg.configure_item("pca_slider", max_value=dpg.get_value("pca_n_components"))
+
+        apply_clahe = dpg.get_value("apply_clahe_checkbox")
+        self.pca_images = image.pca_images(apply_clahe)
 
         self.pca_component_slider_callback(None, dpg.get_value("pca_slider"))
         dpg.show_item("pca_image")
@@ -602,6 +637,7 @@ class UI:
         image_index = data - 1
 
         dpg.set_value("pca_images", self.pca_images[image_index])
+        dpg.set_value("results_tabs", "pca_image_tab")
 
         if dpg.get_value("histogram_source_combo") == "PCA":
             self.update_histogram_plot()
@@ -621,47 +657,50 @@ class UI:
         image_index = data - 1
 
         dpg.set_value("channel_images", images[image_index])
-
+        dpg.set_value("results_tabs", "channel_image_tab")
         if dpg.get_value("histogram_source_combo") == "Channel":
             self.update_histogram_plot()
 
+    @log_exec_time
+    @partial(loading_indicator, message="Extracting channels...")
     def update_channels_images(self):
-        with dpg.mutex():
-            if self.project.current_image is None:
-                return
-            dpg.show_item("channel_image_window")
-            if dpg.does_item_exist("channel_images"):
-                dpg.delete_item("channel_images")
+        if self.project.current_image is None:
+            return
+        dpg.show_item("results_window")
+        if dpg.does_item_exist("channel_images"):
+            dpg.delete_item("channel_images")
 
-            if dpg.does_item_exist("channel_image"):
-                dpg.delete_item("channel_image")
+        if dpg.does_item_exist("channel_image"):
+            dpg.delete_item("channel_image")
 
-            with dpg.texture_registry():
-                dpg.add_raw_texture(
-                    512,
-                    512,
-                    np.ones((512, 512, 4)),  # type:ignore
-                    tag="channel_images",
-                )
-
-            dpg.add_image(
-                "channel_images",
-                parent="channel_image_window",
-                tag="channel_image",
-                show=False,
+        with dpg.texture_registry():
+            dpg.add_raw_texture(
+                512,
+                512,
+                np.ones((512, 512, 4)),  # type:ignore
+                tag="channel_images",
             )
 
-            _, image = self.project.current_image
-            if image.channel_images() is None:
-                return
+        dpg.add_image(
+            "channel_images",
+            parent="channel_image_tab",
+            tag="channel_image",
+            show=False,
+        )
 
-            self.channel_images = image.channel_images()
+        _, image = self.project.current_image
+        if (images := image.channel_images()) is None:
+            return
+
+        self.channel_images = images
 
         self.channel_slider_callback(None, dpg.get_value("channel_slider"))
         dpg.show_item("channel_image")
 
     def window_resize_callback(self, _sender=None, _data=None):
-        if not self.project.images.keys():
+        if not hasattr(self, "project"):
+            return
+        if not self.project.images:
             return
 
         available_width = dpg.get_item_rect_size("gallery_collapsible")[0]
@@ -680,6 +719,8 @@ class UI:
         dpg.set_item_width("histogram_plot", available_width)
 
     def update_histogram_plot(self):
+        self.collapsible_clicked_callback()
+
         if self.project.current_image is None:
             return
         _, image = self.project.current_image

@@ -1,5 +1,7 @@
 import logging
 import os
+import re
+import threading
 import time
 import xml.etree.ElementTree as ET
 from copy import copy
@@ -7,10 +9,11 @@ from dataclasses import dataclass, field
 from enum import Enum
 from functools import cached_property, wraps
 from pathlib import Path
-from typing import Any, Literal, ParamSpec, TypeVar
+from typing import Any, Callable, Literal, ParamSpec, TypeVar
 
 import coloredlogs
 import cv2
+import dearpygui.dearpygui as dpg
 import numpy as np
 import numpy.typing as npt
 import spectral.io.envi as envi
@@ -27,12 +30,33 @@ T = TypeVar("T")
 P = ParamSpec("P")
 
 
-def log_exec_time(f):
+def log_exec_time(f: Callable[P, T]):  # type:ignore
     @wraps(f)
     def _wrapper(*args, **kwargs):
         start_time = time.perf_counter()
         result = f(*args, **kwargs)
         print(f"{f.__name__}: {time.perf_counter() - start_time} s.")
+        return result
+
+    return _wrapper  # type:ignore
+
+
+def show_loading_indicator():
+    dpg.show_item("loading_indicator")
+
+
+def hide_loading_indicator():
+    if dpg.is_item_shown("loading_indicator"):
+        dpg.hide_item("loading_indicator")
+
+
+def loading_indicator(f: Callable[P, T], message: str):  # type:ignore
+    @wraps(f)
+    def _wrapper(*args, **kwargs):
+        dpg.configure_item("loading_indicator_message", label=message.center(30))
+        threading.Timer(0.1, show_loading_indicator).start()
+        result = f(*args, **kwargs)
+        threading.Timer(0.1, hide_loading_indicator).start()
         return result
 
     return _wrapper  # type:ignore
@@ -96,6 +120,7 @@ class Image:
 
         return data.tolist()
 
+    @log_exec_time
     def channel_images(self):
         if self.hsi_image is None:
             return
@@ -106,11 +131,11 @@ class Image:
                 for i in range(self.hsi_image.shape[-1])
             ]
         )
+
         return images
 
-    def _channel_to_image(self, to_convert):
-        img = to_convert.reshape(512, 512, 1)
-        return rotate_image(cv2.cvtColor(img, cv2.COLOR_GRAY2RGBA), -90)
+    def _channel_to_image(self, to_convert: npt.NDArray[np.float_]):
+        return rotate_image(cv2.cvtColor(to_convert, cv2.COLOR_GRAY2RGBA), -90)
 
     @cached_property
     def integration_time(self):
@@ -220,16 +245,28 @@ class Image:
 
 @dataclass
 class Project:
-    directory: str
+    catalog: str
     images: dict[str, Image] = field(init=False, default_factory=dict)
     current_image: tuple[str, Image] | None = field(init=False, default=None)
 
     def __post_init__(self):
-        if not os.path.exists(self.directory):
+        if not os.path.exists(self.catalog):
             self.images = {}
         else:
-            for label in os.listdir(self.directory):
-                self.images[label] = Image(f"{self.directory}/{label}")
+            self.verify_catalog()
+            for label in os.listdir(self.catalog):
+                self.images[label] = Image(f"{self.catalog}/{label}")
+
+    def verify_catalog(self):
+        catalog_contents = os.listdir(self.catalog)
+        possible_image_dirs = [
+            i for i in catalog_contents if os.path.isdir(f"{self.catalog}/{i}")
+        ]
+        if not any(possible_image_dirs):
+            raise ValueError
+        for dir in possible_image_dirs:
+            if not re.match(r"\d", dir):
+                raise ValueError
 
     def set_current_image(self, label: str):
         self.current_image = (label, self.images[label])
