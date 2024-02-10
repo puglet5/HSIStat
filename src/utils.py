@@ -5,7 +5,6 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 from copy import copy
-from dataclasses import dataclass, field
 from enum import Enum
 from functools import cached_property, wraps
 from pathlib import Path
@@ -16,6 +15,7 @@ import cv2
 import dearpygui.dearpygui as dpg
 import numpy as np
 import numpy.typing as npt
+from attrs import define, field
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import minmax_scale
 from spectral.io import envi
@@ -90,22 +90,20 @@ class ImageType(Enum):
     OTHER = 5
 
 
-@dataclass
+@define
 class Image:
     path: str
     png_image: npt.NDArray[np.float_] = field(init=False)
-    hsi_image: npt.NDArray[np.float_] = field(
-        init=False, default_factory=lambda: np.array([])
-    )
+    hsi_image: npt.NDArray[np.float_] = field(init=False, factory=lambda: np.array([]))
     hsi_image_loaded: bool = field(init=False, default=False)
     pca_calculated: bool = field(init=False, default=False)
     label: str = field(init=False)
     pca: PCA = field(init=False, default=PCA(n_components=10, svd_solver="arpack"))
     pca_data: npt.NDArray | None = field(init=False, default=None)
     pca_dimensions: int = field(init=False, default=0)
-    raw_metadata: dict[str, Any] = field(init=False, default_factory=dict)
+    raw_metadata: dict[str, Any] = field(init=False, factory=dict)
 
-    def __post_init__(self):
+    def __attrs_post_init__(self):
         self.label = self.path.split("/")[-1]
         self.load_png_image()
         self.parse_xml_metadata()
@@ -243,14 +241,14 @@ class Image:
         return (data_array - dark_scaled) / (white_scaled - dark_scaled)
 
 
-@dataclass
+@define
 class Project:
     catalog: str
-    images: dict[str, Image] = field(init=False, default_factory=dict)
+    images: dict[str, Image] = field(init=False, factory=dict)
     current_image: tuple[str, Image] | None = field(init=False, default=None)
     image_dirs: list[str] | None = field(init=False, default=None)
 
-    def __post_init__(self):
+    def __attrs_post_init__(self):
         if not os.path.exists(self.catalog):
             self.images = {}
         else:

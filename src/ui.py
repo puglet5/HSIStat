@@ -1,10 +1,10 @@
-from dataclasses import dataclass, field
 from functools import partial
 from typing import Literal
 
 import dearpygui.dearpygui as dpg
 import numpy as np
 import numpy.typing as npt
+from attrs import define, field
 
 from src.utils import ImageType, Project, loading_indicator, log_exec_time, logger
 
@@ -12,7 +12,7 @@ TOOLTIP_DELAY_SEC = 0.1
 LABEL_PAD = 23
 
 
-@dataclass
+@define
 class UI:
     project: Project = field(init=False)
     pca_images: npt.NDArray | None = field(init=False, default=None)
@@ -21,8 +21,12 @@ class UI:
     gallery_tag: Literal["image_gallery"] = field(init=False, default="image_gallery")
     image_gallery_n_columns: Literal[9] = 9
     sidebar_width: Literal[350] = 350
+    global_theme: int = field(init=False, default=0)
+    button_theme: int = field(init=False, default=0)
+    active_button_theme: int = field(init=False, default=0)
+    normal_button_theme: int = field(init=False, default=0)
 
-    def __post_init__(self):
+    def __attrs_post_init__(self):
         dpg.create_context()
         dpg.create_viewport(title="hsistat", width=1920, height=1080, vsync=True)
         dpg.configure_app(wait_for_input=False)
@@ -104,10 +108,14 @@ class UI:
                 )
 
     def update_pca_component_spec(self, _sender, data):
+
         dpg.configure_item("pca_slider", max_value=data)
         current_pca_component = dpg.get_value("pca_slider")
         if current_pca_component > data:
             dpg.set_value("pca_slider", data)
+
+        if not hasattr(self, "project"):
+            return
 
         if self.project.current_image is not None:
             self.update_pca_images()
@@ -287,6 +295,8 @@ class UI:
                                 dpg.add_input_text(
                                     tag="project_directory",
                                     width=100,
+                                    callback=lambda s, d: self.setup_project(),
+                                    on_enter=True,
                                 )
                                 dpg.add_button(
                                     label="Browse",

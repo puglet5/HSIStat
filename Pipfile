@@ -16,6 +16,7 @@ matplotlib = "*"
 spectral = "*"
 opencv-python = "*"
 pillow = "*"
+attrs = "*"
 
 [dev-packages]
 black = "*"
