@@ -199,6 +199,44 @@ class UI:
         self.window_resize_callback()
         self.collapsible_clicked_callback()
 
+    def save_pca_image(self):
+        if not isinstance(self.pca_images, np.ndarray):
+            return []
+        if self.project.current_image is None:
+            return
+
+        name, curr_image = self.project.current_image
+
+        pca_component_n = dpg.get_value("pca_slider") - 1
+
+        image_data = self.pca_images[pca_component_n] * [255, 255, 255, 255]
+
+        image_data = image_data.flatten().astype(int)
+        filename = f"{self.project.catalog}/{name}_PCA_{pca_component_n}.png"
+
+        dpg.save_image(filename, 512, 512, image_data)
+
+    def save_channel_image(self):
+        if not isinstance(self.channel_images, np.ndarray):
+            return []
+        if self.project.current_image is None:
+            return
+
+        name, curr_image = self.project.current_image
+
+        channel_n = dpg.get_value("channel_slider") - 1
+
+        image_data = self.channel_images[channel_n] * [255, 255, 255, 255]
+
+        image_data = image_data.flatten().astype(int)
+        filename = f"{self.project.catalog}/{name}_channel_{channel_n}.png"
+
+        dpg.save_image(filename, 512, 512, image_data)
+
+    def save_all_shown_images(self):
+        self.save_channel_image()
+        self.save_pca_image()
+
     def setup_layout(self):
         with dpg.window(
             label="hsistat",
@@ -209,15 +247,17 @@ class UI:
         ):
             with dpg.menu_bar(tag="menu_bar"):
                 with dpg.menu(label="File"):
-                    dpg.add_menu_item(label="Open new image", shortcut="(Ctrl+O)")
+
                     dpg.add_menu_item(
-                        label="Open project directory", shortcut="(Ctrl+Shift+O)"
+                        label="Open new catalog",
+                        shortcut="(Ctrl+O)",
+                        callback=lambda: dpg.show_item("project_directory_picker"),
                     )
                     dpg.add_menu_item(
-                        label="Open latest image", shortcut="(Ctrl+Shift+I)"
+                        label="Save shown images",
+                        shortcut="(Ctrl+S)",
+                        callback=lambda s, d: self.save_all_shown_images(),
                     )
-                    dpg.add_menu_item(label="Save", shortcut="(Ctrl+S)")
-                    dpg.add_menu_item(label="Save As", shortcut="(Ctrl+Shift+S)")
                     dpg.add_menu_item(label="Quit", shortcut="(Ctrl+Q)")
 
                 with dpg.menu(label="Edit"):
@@ -374,6 +414,13 @@ class UI:
                                     width=-1,
                                 )
 
+                            with dpg.group(horizontal=True):
+                                dpg.add_text(default_value="".rjust(LABEL_PAD))
+                                dpg.add_button(
+                                    label="Save channel image",
+                                    callback=lambda s, d: self.save_channel_image(),
+                                )
+
                     with dpg.child_window(
                         label="PCA",
                         width=-1,
@@ -426,6 +473,12 @@ class UI:
                                 tag="apply_clahe_checkbox",
                                 default_value=False,
                                 callback=lambda s, d: self.update_pca_images(),
+                            )
+                        with dpg.group(horizontal=True):
+                            dpg.add_text(default_value="".rjust(LABEL_PAD))
+                            dpg.add_button(
+                                label="Save PCA image",
+                                callback=lambda s, d: self.save_pca_image(),
                             )
 
                 with dpg.child_window(
@@ -549,6 +602,11 @@ class UI:
             dpg.stop_dearpygui()
             dpg.destroy_context()
 
+        if dpg.is_key_pressed(dpg.mvKey_S):
+            self.save_all_shown_images()
+        if dpg.is_key_pressed(dpg.mvKey_O):
+            dpg.show_item("project_directory_picker")
+
         if dpg.is_key_pressed(dpg.mvKey_Comma):
             if not dpg.is_item_visible("settings_modal"):
                 self.show_settings_modal()
@@ -584,6 +642,7 @@ class UI:
     def hide_modals(self):
         if dpg.is_item_visible("settings_modal"):
             dpg.hide_item("settings_modal")
+        dpg.hide_item("project_directory_picker")
 
     def show_settings_modal(self):
         w, h = dpg.get_viewport_width(), dpg.get_viewport_height()
@@ -651,9 +710,17 @@ class UI:
                 height=512,
                 equal_aspects=True,
             ):
-                dpg.add_plot_axis(dpg.mvXAxis, no_tick_labels=True, no_tick_marks=True)
+                dpg.add_plot_axis(
+                    dpg.mvXAxis,
+                    no_tick_labels=True,
+                    no_tick_marks=True,
+                    tag="pca_x_axis",
+                )
                 with dpg.plot_axis(
-                    dpg.mvYAxis, no_tick_labels=True, no_tick_marks=True
+                    dpg.mvYAxis,
+                    no_tick_labels=True,
+                    no_tick_marks=True,
+                    tag="pca_y_axis",
                 ):
                     dpg.add_image_series(
                         "pca_images",
@@ -672,6 +739,8 @@ class UI:
 
         self.pca_component_slider_callback(None, dpg.get_value("pca_slider"))
         dpg.show_item("pca_image")
+        dpg.fit_axis_data("pca_y_axis")
+        dpg.fit_axis_data("pca_x_axis")
 
     def pca_component_slider_callback(self, _sender, data):
         if not dpg.does_item_exist("pca_images"):
@@ -721,9 +790,17 @@ class UI:
                 equal_aspects=True,
                 tag="channel_image_plot",
             ):
-                dpg.add_plot_axis(dpg.mvXAxis, no_tick_labels=True, no_tick_marks=True)
+                dpg.add_plot_axis(
+                    dpg.mvXAxis,
+                    no_tick_labels=True,
+                    no_tick_marks=True,
+                    tag="channel_x_axis",
+                )
                 with dpg.plot_axis(
-                    dpg.mvYAxis, no_tick_labels=True, no_tick_marks=True
+                    dpg.mvYAxis,
+                    no_tick_labels=True,
+                    no_tick_marks=True,
+                    tag="channel_y_axis",
                 ):
                     dpg.add_image_series(
                         "channel_images",
@@ -741,6 +818,8 @@ class UI:
 
         self.channel_slider_callback(None, dpg.get_value("channel_slider"))
         dpg.show_item("channel_image")
+        dpg.fit_axis_data("channel_y_axis")
+        dpg.fit_axis_data("channel_x_axis")
 
     def window_resize_callback(self, _sender=None, _data=None):
         if not hasattr(self, "project"):
