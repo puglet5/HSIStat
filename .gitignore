@@ -161,6 +161,8 @@ cython_debug/
 
 # nuitka build files and folders
 *.bin
+*.exe
+*.cmd
 *.dist/
 *.build/
 *.onefile-build/

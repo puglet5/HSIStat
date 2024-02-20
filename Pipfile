@@ -4,25 +4,19 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-pandas = "*"
 numpy = "*"
-usb-monitor = "*"
 hsistat = {file = ".", editable = true}
 coloredlogs = "*"
 dearpygui = "*"
-scipy = "*"
 scikit-learn = "*"
 spectral = "*"
-pillow = "*"
 attrs = "*"
+opencv-python = "*"
 
 [dev-packages]
 black = "*"
 bandit = "*"
-pandas-stubs = "*"
-matplotlib = "*"
 setuptools = "*"
-opencv-python = "*"
 ipykernel = "*"
 nuitka = "*"
 memory-profiler = "*"
