@@ -242,7 +242,9 @@ class UI:
             label="hsistat",
             tag=self.window_tag,
             horizontal_scrollbar=False,
+            on_close=self.stop,
             no_scrollbar=True,
+            autosize=True,
             min_size=[160, 90],
         ):
             with dpg.menu_bar(tag="menu_bar"):
@@ -418,6 +420,7 @@ class UI:
                                 dpg.add_text(default_value="".rjust(LABEL_PAD))
                                 dpg.add_button(
                                     label="Save channel image",
+                                    width=-1,
                                     callback=lambda s, d: self.save_channel_image(),
                                 )
 
@@ -478,6 +481,7 @@ class UI:
                             dpg.add_text(default_value="".rjust(LABEL_PAD))
                             dpg.add_button(
                                 label="Save PCA image",
+                                width=-1,
                                 callback=lambda s, d: self.save_pca_image(),
                             )
 
@@ -632,7 +636,9 @@ class UI:
                 dpg.mvKey_Escape, callback=self.close_results_window
             )
             dpg.add_key_down_handler(dpg.mvKey_Escape, callback=self.hide_modals)
-            dpg.add_key_press_handler(dpg.mvKey_F11, callback=lambda: dpg.toggle_viewport_fullscreen())
+            dpg.add_key_press_handler(
+                dpg.mvKey_F11, callback=lambda: dpg.toggle_viewport_fullscreen()
+            )
 
         with dpg.item_handler_registry(tag="collapsible_clicked_handler"):
             dpg.add_item_clicked_handler(callback=self.collapsible_clicked_callback)
