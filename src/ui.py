@@ -28,7 +28,7 @@ class UI:
 
     def __attrs_post_init__(self):
         dpg.create_context()
-        dpg.create_viewport(title="hsistat", width=1920, height=1080, vsync=True)
+        dpg.create_viewport(title="hsistat", width=800, height=600, vsync=True)
         dpg.configure_app(wait_for_input=False)
         self.setup_themes()
         self.bind_themes()
@@ -276,7 +276,7 @@ class UI:
                     )
                     dpg.add_menu_item(
                         label="Toggle Fullscreen",
-                        shortcut="(Win+F)",
+                        shortcut="(F11)",
                         callback=lambda: dpg.toggle_viewport_fullscreen(),
                     )
                 with dpg.menu(label="Tools"):
@@ -632,6 +632,7 @@ class UI:
                 dpg.mvKey_Escape, callback=self.close_results_window
             )
             dpg.add_key_down_handler(dpg.mvKey_Escape, callback=self.hide_modals)
+            dpg.add_key_press_handler(dpg.mvKey_F11, callback=lambda: dpg.toggle_viewport_fullscreen())
 
         with dpg.item_handler_registry(tag="collapsible_clicked_handler"):
             dpg.add_item_clicked_handler(callback=self.collapsible_clicked_callback)
