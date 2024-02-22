@@ -133,10 +133,9 @@ class UI:
 
     def populate_image_gallery(self):
         if not self.project.images:
-            dpg.add_text(
-                parent=self.gallery_tag,
-                default_value="No images found in specified directory",
-            )
+            dpg.show_item("invalid_directory_message")
+        else:
+            dpg.hide_item("invalid_directory_message")
 
         if dpg.does_item_exist("image_gallery_wrapper"):
             dpg.delete_item("image_gallery_wrapper")
@@ -323,7 +322,10 @@ class UI:
 
             with dpg.group(horizontal=True):
                 with dpg.child_window(
-                    border=False, width=self.sidebar_width, tag="sidebar"
+                    border=False,
+                    width=self.sidebar_width,
+                    tag="sidebar",
+                    no_scrollbar=True,
                 ):
                     with dpg.child_window(
                         label="Project",
@@ -539,7 +541,11 @@ class UI:
                         default_open=True,
                     ):
                         with dpg.child_window(border=True, tag="gallery_wrapper"):
-                            dpg.add_group(tag=self.gallery_tag)
+                            with dpg.group(tag=self.gallery_tag):
+                                dpg.add_text(
+                                    tag="invalid_directory_message",
+                                    default_value="No images found in specified directory",
+                                )
 
                     with dpg.child_window(width=-1, border=True):
                         with dpg.group(tag="pca_wrapper", horizontal=True):
@@ -577,6 +583,7 @@ class UI:
                                 no_highlight=True,
                                 anti_aliased=True,
                             ):
+                                dpg.add_plot_legend()
                                 dpg.add_plot_axis(
                                     dpg.mvXAxis,
                                     tag="spectrum_x",
@@ -584,13 +591,24 @@ class UI:
                                 dpg.add_plot_axis(
                                     dpg.mvYAxis,
                                     tag="spectrum_y",
+                                    lock_min=True,
+                                    lock_max=True,
                                 )
-                                dpg.add_line_series(
-                                    x=list(range(1, 205)),
-                                    y=np.zeros((204,)).tolist(),
-                                    parent=dpg.last_item(),
-                                    tag="spectrum_series",
+
+                                ticks = (
+                                    np.array(
+                                        [
+                                            np.linspace(400, 1000, 9),
+                                            np.linspace(1, 204, 9),
+                                        ]
+                                    )
+                                    .T.astype(int)
+                                    .tolist()
                                 )
+
+                                labels = tuple([(str(l[0]), l[1]) for l in ticks])
+                                print(labels)
+                                dpg.set_axis_ticks("spectrum_x", labels)
 
             with dpg.window(
                 label="Settings",
@@ -1018,9 +1036,31 @@ class UI:
 
     def drag_point_callback(self):
         drag_data = dpg.get_value("drag_point_channels")
-        point = (int(drag_data[0]), int(drag_data[1]))
+        point = [512 - int(drag_data[1]), int(drag_data[0])]
+        if point[0] == 512:
+            point[0] = 511
+        if point[1] == 512:
+            point[1] = 511
+        if point[0] < 0 or point[1] < 0:
+            return
         assert isinstance(self.channel_images, np.ndarray)
-        spectrum = self.channel_images[:, *point, 0]
-        dpg.configure_item("spectrum_series", y=spectrum.tolist())
-        dpg.fit_axis_data("spectrum_x")
-        dpg.fit_axis_data("spectrum_y")
+        try:
+            spectrum = self.channel_images[:, *point, 0]
+        except IndexError:
+            return
+
+        if not dpg.does_item_exist("spectrum_series"):
+            dpg.add_line_series(
+                label=f"{point}",
+                parent="spectrum_y",
+                x=list(range(1, 205)),
+                y=np.zeros((204,)).tolist(),
+                tag="spectrum_series",
+            )
+            dpg.fit_axis_data("spectrum_x")
+        else:
+            dpg.configure_item(
+                "spectrum_series",
+                y=spectrum.tolist(),
+                label=f"{point}",
+            )
