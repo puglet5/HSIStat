@@ -3,7 +3,6 @@ import os
 import re
 import threading
 import time
-import xml.etree.ElementTree as ET
 from copy import copy
 from enum import Enum
 from functools import cached_property, wraps
@@ -13,6 +12,7 @@ from typing import Any, Callable, ParamSpec, TypeVar
 import coloredlogs
 import cv2
 import dearpygui.dearpygui as dpg
+import defusedxml.ElementTree as ET
 import numpy as np
 import numpy.typing as npt
 from attrs import define, field
@@ -63,7 +63,7 @@ def loading_indicator(f: Callable[P, T], message: str) -> Callable[P, T]:  # typ
     return _wrapper  # type:ignore
 
 
-def xml_to_dict(r: ET.Element, root=True):
+def xml_to_dict(r, root=True):
     if root:
         return {r.tag: xml_to_dict(r, False)}
     d = copy(r.attrib)
@@ -147,7 +147,7 @@ class Image:
     def parse_xml_metadata(self):
         xml_file = f"{self.path}/metadata/{self.label}.xml"
         with open(xml_file, "r", encoding="utf8") as f:
-            xml = ET.fromstringlist(f.readlines())
+            xml = ET.fromstring(f.read())
             self.raw_metadata = xml_to_dict(xml)
 
     def _pca_to_image(self, to_convert, apply_clahe: bool):

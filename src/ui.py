@@ -504,7 +504,7 @@ class UI:
                         with dpg.group(horizontal=True):
                             dpg.add_text(default_value="".rjust(LABEL_PAD))
                             dpg.add_button(
-                                label="Save PCA image",
+                                label="Save component image",
                                 width=-1,
                                 callback=lambda s, d: self.save_pca_image(),
                             )
@@ -966,9 +966,9 @@ class UI:
         source_user = dpg.get_value("histogram_source_combo")
 
         if axis_user == "Rows":
-            axis = 0
-        else:
             axis = 1
+        else:
+            axis = 0
 
         if not isinstance(self.pca_images, np.ndarray):
             current_pca_image = image.png_image
