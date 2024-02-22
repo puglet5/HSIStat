@@ -6,7 +6,14 @@ import numpy as np
 import numpy.typing as npt
 from attrs import define, field
 
-from src.utils import ImageType, Project, loading_indicator, log_exec_time, logger
+from src.utils import (
+    ImageType,
+    Project,
+    loading_indicator,
+    log_exec_time,
+    logger,
+    rotate_image,
+)
 
 TOOLTIP_DELAY_SEC = 0.1
 LABEL_PAD = 23
@@ -209,7 +216,7 @@ class UI:
 
         pca_component_n = dpg.get_value("pca_slider") - 1
 
-        image_data = self.pca_images[pca_component_n] * [255, 255, 255, 255]
+        image_data = self.pca_images[pca_component_n] * [255, 255, 255]
 
         image_data = image_data.flatten().astype(int)
         filename = f"{self.project.catalog}/{name}_PCA_{pca_component_n}.png"
@@ -226,7 +233,7 @@ class UI:
 
         channel_n = dpg.get_value("channel_slider") - 1
 
-        image_data = self.channel_images[channel_n] * [255, 255, 255, 255]
+        image_data = self.channel_images[channel_n] * [255, 255, 255]
 
         image_data = image_data.flatten().astype(int)
         filename = f"{self.project.catalog}/{name}_channel_{channel_n}.png"
@@ -359,6 +366,16 @@ class UI:
                             with dpg.group(horizontal=True):
                                 dpg.add_text("Load all images".rjust(LABEL_PAD))
                                 dpg.add_checkbox(default_value=True)
+
+                            with dpg.group(horizontal=True):
+                                dpg.add_text("Rotate images".rjust(LABEL_PAD))
+                                dpg.add_combo(
+                                    items=["0", "90", "-90", "180"],
+                                    default_value="0",
+                                    width=-1,
+                                    tag="rotate_images",
+                                    callback=self.rotate_images,
+                                )
 
                     with dpg.child_window(
                         label="Images",
@@ -744,8 +761,9 @@ class UI:
         dpg.configure_item("pca_slider", max_value=dpg.get_value("pca_n_components"))
 
         apply_clahe = dpg.get_value("apply_clahe_checkbox")
-        self.pca_images = image.pca_images(apply_clahe)
 
+        self.pca_images = image.pca_images(apply_clahe)
+        self.rotate_images()
         self.pca_component_slider_callback(None, dpg.get_value("pca_slider"))
         dpg.show_item("pca_image")
         dpg.fit_axis_data("pca_y_axis")
@@ -824,7 +842,7 @@ class UI:
             return
 
         self.channel_images = images
-
+        self.rotate_images()
         self.channel_slider_callback(None, dpg.get_value("channel_slider"))
         dpg.show_item("channel_image")
         dpg.fit_axis_data("channel_y_axis")
@@ -903,3 +921,30 @@ class UI:
             )
             dpg.fit_axis_data("histogram_x")
             dpg.fit_axis_data("histogram_y")
+
+    def rotate_images(self):
+        if self.pca_images is None:
+            return
+        if self.channel_images is None:
+            return
+        if self.project.current_image is None:
+            return
+
+        angle = int(dpg.get_value("rotate_images"))
+        _, image = self.project.current_image
+        if (channel_images := image.channel_images()) is None:
+            return
+        apply_clahe = dpg.get_value("apply_clahe_checkbox")
+        if (pca_images := image.pca_images(apply_clahe)) is None:
+            return
+
+        for i, img in enumerate(pca_images):
+            self.pca_images[i] = rotate_image(img, angle)
+
+        for i, img in enumerate(channel_images):
+            self.channel_images[i] = rotate_image(img, angle)
+
+        dpg.set_value("pca_images", self.pca_images[dpg.get_value("pca_slider") - 1])
+        dpg.set_value(
+            "channel_images", self.channel_images[dpg.get_value("channel_slider") - 1]
+        )
