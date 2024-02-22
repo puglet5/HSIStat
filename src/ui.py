@@ -589,16 +589,18 @@ class UI:
                 dpg.add_raw_texture(
                     512,
                     512,
-                    np.ones((512, 512, 4)),  # type:ignore
+                    np.ones((512, 512, 3)),  # type:ignore
                     tag="pca_images",
+                    format=dpg.mvFormat_Float_rgb,
                 )
 
             with dpg.texture_registry():
                 dpg.add_raw_texture(
                     512,
                     512,
-                    np.ones((512, 512, 4)),  # type:ignore
+                    np.ones((512, 512, 3)),  # type:ignore
                     tag="channel_images",
+                    format=dpg.mvFormat_Float_rgb,
                 )
 
     def on_key_ctrl(self):

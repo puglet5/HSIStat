@@ -133,7 +133,7 @@ class Image:
         return images
 
     def _channel_to_image(self, to_convert: npt.NDArray[np.float_]):
-        return rotate_image(cv2.cvtColor(to_convert, cv2.COLOR_GRAY2RGBA), -90)
+        return rotate_image(cv2.cvtColor(to_convert, cv2.COLOR_GRAY2RGB), -90)
 
     @cached_property
     def integration_time(self):
@@ -159,7 +159,7 @@ class Image:
             img = img.astype(np.float32) / 255
 
         img = rotate_image(
-            cv2.cvtColor(img, cv2.COLOR_GRAY2RGBA),
+            cv2.cvtColor(img, cv2.COLOR_GRAY2RGB),
             -90,
         )
 
