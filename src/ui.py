@@ -325,10 +325,6 @@ class UI:
                 with dpg.child_window(
                     border=False, width=self.sidebar_width, tag="sidebar"
                 ):
-                    dpg.add_progress_bar(tag="table_progress", width=-1, height=19)
-                    with dpg.tooltip("table_progress", delay=TOOLTIP_DELAY_SEC):
-                        dpg.add_text("Current operation progress")
-
                     with dpg.child_window(
                         label="Project",
                         width=-1,
@@ -445,7 +441,7 @@ class UI:
                     with dpg.child_window(
                         label="PCA",
                         width=-1,
-                        height=-1,
+                        height=250,
                         menubar=True,
                         no_scrollbar=True,
                     ):
@@ -512,6 +508,28 @@ class UI:
                                 callback=lambda s, d: self.save_pca_image(),
                             )
 
+                    with dpg.child_window(
+                        label="Postprocessing",
+                        width=-1,
+                        height=-1,
+                        menubar=True,
+                        no_scrollbar=True,
+                    ):
+                        with dpg.menu_bar():
+                            with dpg.menu(label="Postprocessing", enabled=False):
+                                pass
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Sharpen".rjust(LABEL_PAD))
+                            dpg.add_checkbox(default_value=False)
+
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Remove noise".rjust(LABEL_PAD))
+                            dpg.add_checkbox(default_value=False)
+
+                        with dpg.group(horizontal=True):
+                            dpg.add_text("Remove fisheye".rjust(LABEL_PAD))
+                            dpg.add_checkbox(default_value=False)
+
                 with dpg.child_window(
                     border=False, width=-1, height=-1, tag="images_wrapper"
                 ):
@@ -526,8 +544,8 @@ class UI:
                     with dpg.child_window(width=-1, border=True):
                         with dpg.group(tag="pca_wrapper", horizontal=True):
                             with dpg.plot(
-                                show=False,
-                                width=-1,
+                                show=True,
+                                width=400,
                                 tag="histogram_plot",
                                 no_highlight=True,
                                 anti_aliased=True,
@@ -551,6 +569,27 @@ class UI:
                                     density=True,
                                     max_range=255,
                                     outliers=True,
+                                )
+                            with dpg.plot(
+                                show=True,
+                                width=-1,
+                                tag="spectrum_plot",
+                                no_highlight=True,
+                                anti_aliased=True,
+                            ):
+                                dpg.add_plot_axis(
+                                    dpg.mvXAxis,
+                                    tag="spectrum_x",
+                                )
+                                dpg.add_plot_axis(
+                                    dpg.mvYAxis,
+                                    tag="spectrum_y",
+                                )
+                                dpg.add_line_series(
+                                    x=list(range(1, 205)),
+                                    y=np.zeros((204,)).tolist(),
+                                    parent=dpg.last_item(),
+                                    tag="spectrum_series",
                                 )
 
             with dpg.window(
@@ -764,6 +803,7 @@ class UI:
                         [512, 512],
                         tag="pca_image",
                         show=False,
+                        tint_color=(255, 255, 255, 100),
                     )
 
         _, image = self.project.current_image
@@ -854,7 +894,14 @@ class UI:
                         [512, 512],
                         tag="channel_image",
                         show=False,
+                        tint_color=(255, 255, 255, 100),
                     )
+                dpg.add_drag_point(
+                    default_value=(256, 256),
+                    color=(10, 255, 10, 255),
+                    callback=self.drag_point_callback,
+                    tag="drag_point_channels",
+                )
 
         _, image = self.project.current_image
         if (images := image.channel_images()) is None:
@@ -886,7 +933,8 @@ class UI:
 
         self.collapsible_clicked_callback()
 
-        dpg.set_item_width("histogram_plot", available_width)
+        dpg.set_item_width("spectrum_plot", -1)
+        dpg.set_item_width("histogram_plot", available_width // 2)
 
     def update_histogram_plot(self):
         self.collapsible_clicked_callback()
@@ -967,3 +1015,12 @@ class UI:
         dpg.set_value(
             "channel_images", self.channel_images[dpg.get_value("channel_slider") - 1]
         )
+
+    def drag_point_callback(self):
+        drag_data = dpg.get_value("drag_point_channels")
+        point = (int(drag_data[0]), int(drag_data[1]))
+        assert isinstance(self.channel_images, np.ndarray)
+        spectrum = self.channel_images[:, *point, 0]
+        dpg.configure_item("spectrum_series", y=spectrum.tolist())
+        dpg.fit_axis_data("spectrum_x")
+        dpg.fit_axis_data("spectrum_y")
