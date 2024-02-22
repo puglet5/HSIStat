@@ -1,3 +1,4 @@
+import uuid
 from functools import partial
 from typing import Literal
 
@@ -116,7 +117,6 @@ class UI:
                 )
 
     def update_pca_component_spec(self, _sender, data):
-
         dpg.configure_item("pca_slider", max_value=data)
         current_pca_component = dpg.get_value("pca_slider")
         if current_pca_component > data:
@@ -256,7 +256,6 @@ class UI:
         ):
             with dpg.menu_bar(tag="menu_bar"):
                 with dpg.menu(label="File"):
-
                     dpg.add_menu_item(
                         label="Open new catalog",
                         shortcut="(Ctrl+O)",
@@ -607,8 +606,11 @@ class UI:
                                 )
 
                                 labels = tuple([(str(l[0]), l[1]) for l in ticks])
-                                print(labels)
                                 dpg.set_axis_ticks("spectrum_x", labels)
+                                dpg.set_axis_limits("spectrum_x", 1, 204)
+                                dpg.configure_item(
+                                    "spectrum_x", lock_max=True, lock_min=True
+                                )
 
             with dpg.window(
                 label="Settings",
@@ -725,6 +727,9 @@ class UI:
             dpg.add_key_press_handler(
                 dpg.mvKey_F11, callback=lambda: dpg.toggle_viewport_fullscreen()
             )
+            dpg.add_mouse_click_handler(
+                dpg.mvMouseButton_Left, callback=self.handle_lmb
+            )
 
         with dpg.item_handler_registry(tag="collapsible_clicked_handler"):
             dpg.add_item_clicked_handler(callback=self.collapsible_clicked_callback)
@@ -786,6 +791,9 @@ class UI:
         self.update_pca_images()
         self.update_channels_images()
         self.update_histogram_plot()
+
+        dpg.delete_item("spectrum_y", children_only=True)
+        dpg.delete_item("channel_image_plot", children_only=True, slot=0)
 
     @partial(loading_indicator, message="Reducing dimensions...")
     def update_pca_images(self):
@@ -914,12 +922,6 @@ class UI:
                         show=False,
                         tint_color=(255, 255, 255, 100),
                     )
-                dpg.add_drag_point(
-                    default_value=(256, 256),
-                    color=(10, 255, 10, 255),
-                    callback=self.drag_point_callback,
-                    tag="drag_point_channels",
-                )
 
         _, image = self.project.current_image
         if (images := image.channel_images()) is None:
@@ -1034,33 +1036,73 @@ class UI:
             "channel_images", self.channel_images[dpg.get_value("channel_slider") - 1]
         )
 
-    def drag_point_callback(self):
-        drag_data = dpg.get_value("drag_point_channels")
+    def drag_point_callback(self, sender):
+        drag_data = dpg.get_value(sender)
         point = [512 - int(drag_data[1]), int(drag_data[0])]
-        if point[0] == 512:
+        if point[0] >= 512:
             point[0] = 511
-        if point[1] == 512:
+        if point[1] >= 512:
             point[1] = 511
-        if point[0] < 0 or point[1] < 0:
-            return
+        if point[0] < 0:
+            point[0] = 0
+        if point[1] < 0:
+            point[1] = 0
         assert isinstance(self.channel_images, np.ndarray)
         try:
             spectrum = self.channel_images[:, *point, 0]
         except IndexError:
             return
 
-        if not dpg.does_item_exist("spectrum_series"):
+        color = dpg.get_item_configuration(sender)["color"]
+        plot_color = np.array(color) * [255, 255, 255, 255]
+        alias = dpg.get_item_alias(sender)
+        if not dpg.does_item_exist(f"spectrum_point_{alias}"):
+
             dpg.add_line_series(
                 label=f"{point}",
                 parent="spectrum_y",
                 x=list(range(1, 205)),
-                y=np.zeros((204,)).tolist(),
-                tag="spectrum_series",
+                y=spectrum.tolist(),
+                tag=f"spectrum_point_{alias}",
             )
+            with dpg.theme() as plot_theme:
+                with dpg.theme_component(dpg.mvLineSeries):
+                    dpg.add_theme_color(
+                        dpg.mvPlotCol_Line,
+                        plot_color.tolist(),
+                        category=dpg.mvThemeCat_Plots,
+                    )
+            dpg.bind_item_theme(f"spectrum_point_{alias}", plot_theme)
             dpg.fit_axis_data("spectrum_x")
         else:
             dpg.configure_item(
-                "spectrum_series",
+                f"spectrum_point_{alias}",
                 y=spectrum.tolist(),
                 label=f"{point}",
             )
+
+    def add_drag_point(self, position):
+        dp_id = uuid.uuid4().urn
+        color = np.array(
+            dpg.sample_colormap(dpg.mvPlotColormap_Jet, np.random.random())
+        ) * [255, 255, 255, 255]
+        dpg.add_drag_point(
+            default_value=tuple(position),
+            color=color.tolist(),
+            callback=lambda s: self.drag_point_callback(s),
+            tag=f"drag_point_{dp_id}",
+            parent="channel_image_plot",
+        )
+        self.drag_point_callback(f"drag_point_{dp_id}")
+
+    def handle_lmb(self):
+        if not dpg.does_item_exist("channel_image_plot"):
+            return
+
+        plot_hovered = dpg.is_item_hovered("channel_image_plot")
+        plot_focused = dpg.is_item_focused("channel_image_plot")
+        ctrl_pressed = dpg.is_key_down(dpg.mvKey_Control)
+
+        if plot_focused and plot_hovered and ctrl_pressed:
+            plot_mouse_pos = dpg.get_plot_mouse_pos()
+            self.add_drag_point(plot_mouse_pos)
