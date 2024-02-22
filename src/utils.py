@@ -16,7 +16,8 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 import numpy.typing as npt
 from attrs import define, field
-from sklearn.decomposition import PCA
+from sklearn.decomposition import PCA, FastICA
+from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import minmax_scale
 from spectral.io import envi
 from spectral.io.envi import BilFile
@@ -96,11 +97,11 @@ class Image:
     png_image: npt.NDArray[np.float_] = field(init=False)
     hsi_image: npt.NDArray[np.float_] = field(init=False, factory=lambda: np.array([]))
     hsi_image_loaded: bool = field(init=False, default=False)
-    pca_calculated: bool = field(init=False, default=False)
     label: str = field(init=False)
-    pca: PCA = field(init=False, default=PCA(n_components=10, svd_solver="arpack"))
-    pca_data: npt.NDArray | None = field(init=False, default=None)
-    pca_dimensions: int = field(init=False, default=0)
+    reducer: PCA | FastICA | Pipeline = field(
+        init=False, default=PCA(n_components=10, svd_solver="arpack")
+    )
+    reduced_data: npt.NDArray | None = field(init=False, default=None)
     raw_metadata: dict[str, Any] = field(init=False, factory=dict)
 
     def __attrs_post_init__(self):
@@ -166,27 +167,22 @@ class Image:
         return img
 
     def pca_images(self, apply_clahe):
-        if self.pca_data is None:
+        if self.reduced_data is None:
             return None
 
         return np.array(
             [
-                self._pca_to_image(self.pca_data[:, i], apply_clahe)
-                for i in range(self.pca_data.shape[-1])
+                self._pca_to_image(self.reduced_data[:, i], apply_clahe)
+                for i in range(self.reduced_data.shape[-1])
             ]
         )
 
     def reduce_hsi_dimensions(self, dims: int):
-        if self.pca_dimensions == dims:
-            return
-
-        reducer = self.pca = PCA(n_components=dims, svd_solver="arpack")
-        reduced = reducer.fit_transform(self.hsi_image.reshape(-1, 204))
+        reduced = self.reducer.fit_transform(self.hsi_image.reshape(-1, 204))
         for i in range(dims):
             minmax_scale(reduced[:, i], feature_range=(0, 1), copy=False)
 
-        self.pca_dimensions = dims
-        self.pca_data = reduced
+        self.reduced_data = reduced
 
     def load_hsi_image(self):
         if self.hsi_image_loaded:

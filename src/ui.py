@@ -5,6 +5,7 @@ import dearpygui.dearpygui as dpg
 import numpy as np
 import numpy.typing as npt
 from attrs import define, field
+from sklearn.decomposition import PCA, FastICA
 
 from src.utils import (
     ImageType,
@@ -452,6 +453,15 @@ class UI:
                             with dpg.menu(label="PCA", enabled=False):
                                 pass
                         with dpg.group(horizontal=True):
+                            dpg.add_text("Reducer".rjust(LABEL_PAD))
+                            dpg.add_combo(
+                                items=["PCA", "ICA", "PCA->ICA"],
+                                default_value="PCA",
+                                width=-1,
+                                tag="image_reducer",
+                                callback=self.update_pca_images,
+                            )
+                        with dpg.group(horizontal=True):
                             dpg.add_text("Method".rjust(LABEL_PAD))
                             dpg.add_combo(
                                 items=["auto", "full", "randomized"],
@@ -720,7 +730,7 @@ class UI:
         self.update_channels_images()
         self.update_histogram_plot()
 
-    @partial(loading_indicator, message="Applying PCA...")
+    @partial(loading_indicator, message="Reducing dimensions...")
     def update_pca_images(self):
         if not hasattr(self, "project"):
             return
@@ -757,7 +767,16 @@ class UI:
                     )
 
         _, image = self.project.current_image
-        image.reduce_hsi_dimensions(dpg.get_value("pca_n_components"))
+        n_components = dpg.get_value("pca_n_components")
+        reducer = dpg.get_value("image_reducer")
+        if reducer == "PCA":
+            image.reducer = PCA(n_components=n_components, svd_solver="auto")
+        elif reducer == "ICA":
+            image.reducer = FastICA(n_components=n_components)
+        else:
+            image.reducer = PCA(n_components=n_components, svd_solver="auto")
+
+        image.reduce_hsi_dimensions(n_components)
         dpg.configure_item("pca_slider", max_value=dpg.get_value("pca_n_components"))
 
         apply_clahe = dpg.get_value("apply_clahe_checkbox")
