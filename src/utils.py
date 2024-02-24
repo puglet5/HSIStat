@@ -7,7 +7,7 @@ from copy import copy
 from enum import Enum
 from functools import cached_property, wraps
 from pathlib import Path
-from typing import Any, Callable, ParamSpec, TypeVar
+from typing import Any, Callable, Generator, ParamSpec, TypeVar
 
 import coloredlogs
 import cv2
@@ -27,16 +27,13 @@ logging.basicConfig(filename=Path(ROOT_DIR, "log/main.log"), filemode="a")
 coloredlogs.install(level="DEBUG")
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
-P = ParamSpec("P")
 
-
-def log_exec_time(f: Callable[P, T]) -> Callable[P, T]:  # type:ignore
+def log_exec_time[T, **P](f: Callable[P, T]) -> Callable[P, T]:
     @wraps(f)
     def _wrapper(*args, **kwargs):
         start_time = time.perf_counter()
         result = f(*args, **kwargs)
-        print(f"{f.__name__}: {time.perf_counter() - start_time} s.")
+        logger.debug(f"{f.__name__}: {time.perf_counter() - start_time} s.")
         return result
 
     return _wrapper  # type:ignore
@@ -51,7 +48,9 @@ def hide_loading_indicator():
         dpg.hide_item("loading_indicator")
 
 
-def loading_indicator(f: Callable[P, T], message: str) -> Callable[P, T]:  # type:ignore
+def loading_indicator[
+    T, **P
+](f: Callable[P, T], message: str) -> Callable[P, T]:  # type:ignore
     @wraps(f)
     def _wrapper(*args, **kwargs):
         dpg.configure_item("loading_indicator_message", label=message.center(30))

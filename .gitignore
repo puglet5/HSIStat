@@ -159,7 +159,7 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# nuitka build files and folders
+# nuitka build files and dirs
 *.bin
 *.exe
 *.cmd
