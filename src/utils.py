@@ -75,7 +75,7 @@ def xml_to_dict(r, root=True):
     return d
 
 
-def rotate_image(img, rot_angle=0):
+def rotate_image(img, rot_angle=0.0):
     (h, w) = img.shape[:2]
     center = (w // 2, h // 2)
     rotation_matrix = cv2.getRotationMatrix2D(center, rot_angle, 1)

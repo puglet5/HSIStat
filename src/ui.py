@@ -34,6 +34,7 @@ class UI:
     button_theme: int = field(init=False, default=0)
     active_button_theme: int = field(init=False, default=0)
     normal_button_theme: int = field(init=False, default=0)
+    rotation_angle_degrees: float = field(init=False, default=0.0)
 
     def __attrs_post_init__(self):
         dpg.create_context()
@@ -371,7 +372,7 @@ class UI:
                                     items=["0", "90", "-90", "180"],
                                     default_value="0",
                                     width=-1,
-                                    tag="rotate_images",
+                                    tag="rotation_angle",
                                     callback=self.rotate_images,
                                 )
 
@@ -1013,6 +1014,37 @@ class UI:
             dpg.fit_axis_data("histogram_x")
             dpg.fit_axis_data("histogram_y")
 
+    def rotate_drag_points(self, angle: float):
+        drag_points = dpg.get_item_children("channel_image_plot", slot=0)
+        angle = self.rotation_angle_degrees
+
+        if drag_points is None:
+            return
+
+        assert isinstance(drag_points, list)
+
+        angle = np.radians(angle)
+        for dp in drag_points:
+            dp_data = dpg.get_item_user_data(dp)
+            assert isinstance(dp_data, dict)
+            original_pos = dp_data["position"]
+            original_angle = dp_data["angle"]
+            original_angle = np.radians(original_angle)
+            assert isinstance(original_pos, list)
+            x = (
+                256
+                + (original_pos[0] - 256) * np.cos(angle - original_angle)
+                - (original_pos[1] - 256) * np.sin(angle - original_angle)
+            )
+            y = (
+                256
+                + (original_pos[0] - 256) * np.sin(angle - original_angle)
+                + (original_pos[1] - 256) * np.cos(angle - original_angle)
+            )
+            dpg.set_value(dp, [x, y, 0, 0])
+            self.drag_point_callback(dp, skip_original_pos_update=True)
+
+    @partial(loading_indicator, message="Rotating images...")
     def rotate_images(self):
         if self.pca_images is None:
             return
@@ -1021,7 +1053,9 @@ class UI:
         if self.project.current_image is None:
             return
 
-        angle = int(dpg.get_value("rotate_images"))
+        angle = float(dpg.get_value("rotation_angle"))
+        self.rotation_angle_degrees = angle
+
         _, image = self.project.current_image
         if (channel_images := image.channel_images()) is None:
             return
@@ -1040,7 +1074,9 @@ class UI:
             "channel_images", self.channel_images[dpg.get_value("channel_slider") - 1]
         )
 
-    def drag_point_callback(self, sender):
+        self.rotate_drag_points(angle)
+
+    def drag_point_callback(self, sender, skip_original_pos_update=False):
         drag_data = dpg.get_value(sender)
         point = [512 - int(drag_data[1]), int(drag_data[0])]
         if point[0] >= 512:
@@ -1056,6 +1092,17 @@ class UI:
             spectrum = self.channel_images[:, *point, 0]
         except IndexError:
             return
+
+        if not skip_original_pos_update:
+            dp_data = dpg.get_item_user_data(sender)
+            assert isinstance(dp_data, dict)
+            dpg.set_item_user_data(
+                sender,
+                {
+                    "position": drag_data,
+                    "angle": dp_data["angle"],
+                },
+            )
 
         color = dpg.get_item_configuration(sender)["color"]
         plot_color = np.array(color) * [255, 255, 255, 255]
@@ -1094,7 +1141,7 @@ class UI:
             default_value=tuple(position),
             color=color.tolist(),
             callback=lambda s: self.drag_point_callback(s),
-            user_data=dp_id,
+            user_data={"position": position, "angle": self.rotation_angle_degrees},
             tag=f"drag_point_{dp_id}",
             parent="channel_image_plot",
         )
