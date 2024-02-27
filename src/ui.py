@@ -586,12 +586,14 @@ class UI:
                                 dpg.add_plot_axis(
                                     dpg.mvXAxis,
                                     tag="spectrum_x",
+                                    label="Wavelength, nm"
                                 )
                                 dpg.add_plot_axis(
                                     dpg.mvYAxis,
                                     tag="spectrum_y",
                                     lock_min=True,
                                     lock_max=True,
+                                    label="Intensity, arb.u."
                                 )
 
                                 ticks = (
@@ -637,7 +639,7 @@ class UI:
             ):
                 with dpg.tab_bar(tag="results_tabs"):
                     dpg.add_tab(label="Channels", tag="channel_image_tab")
-                    dpg.add_tab(label="PCA", tag="pca_image_tab")
+                    dpg.add_tab(label="Components", tag="pca_image_tab")
 
             w, h = dpg.get_viewport_width(), dpg.get_viewport_height()
             with dpg.window(
@@ -726,6 +728,9 @@ class UI:
             dpg.add_key_down_handler(dpg.mvKey_Escape, callback=self.hide_modals)
             dpg.add_key_press_handler(
                 dpg.mvKey_F11, callback=lambda: dpg.toggle_viewport_fullscreen()
+            )
+            dpg.add_mouse_click_handler(
+                dpg.mvMouseButton_Left, callback=self.delete_drag_point
             )
             dpg.add_mouse_click_handler(
                 dpg.mvMouseButton_Left, callback=self.handle_lmb
@@ -829,7 +834,6 @@ class UI:
                         [512, 512],
                         tag="pca_image",
                         show=False,
-                        tint_color=(255, 255, 255, 100),
                     )
 
         _, image = self.project.current_image
@@ -1059,7 +1063,7 @@ class UI:
         if not dpg.does_item_exist(f"spectrum_point_{alias}"):
 
             dpg.add_line_series(
-                label=f"{point}",
+                label=f"{point[1]+1}, {512-point[0]}",
                 parent="spectrum_y",
                 x=list(range(1, 205)),
                 y=spectrum.tolist(),
@@ -1078,7 +1082,7 @@ class UI:
             dpg.configure_item(
                 f"spectrum_point_{alias}",
                 y=spectrum.tolist(),
-                label=f"{point}",
+                label=f"{point[1]+1}, {512-point[0]}",
             )
 
     def add_drag_point(self, position):
@@ -1090,9 +1094,11 @@ class UI:
             default_value=tuple(position),
             color=color.tolist(),
             callback=lambda s: self.drag_point_callback(s),
+            user_data=dp_id,
             tag=f"drag_point_{dp_id}",
             parent="channel_image_plot",
         )
+        dpg.bind_item_handler_registry(dpg.last_item(), "cltl_lmb_drag_point")
         self.drag_point_callback(f"drag_point_{dp_id}")
 
     def handle_lmb(self):
@@ -1106,3 +1112,32 @@ class UI:
         if plot_focused and plot_hovered and ctrl_pressed:
             plot_mouse_pos = dpg.get_plot_mouse_pos()
             self.add_drag_point(plot_mouse_pos)
+
+    def delete_drag_point(self):
+        if not dpg.does_item_exist("channel_image_plot"):
+            return
+
+        plot_hovered = (
+            dpg.is_item_hovered("channel_image_plot")
+            or dpg.is_item_hovered("pca_image_plot")
+            or dpg.is_item_hovered("spectrum_plot")
+            or dpg.is_item_hovered("histogram_plot")
+        )
+        ctrl_pressed = dpg.is_key_down(dpg.mvKey_Control)
+        mouse_pos = np.array(dpg.get_plot_mouse_pos())
+
+        if not plot_hovered and ctrl_pressed:
+            if dpg.is_key_down(dpg.mvKey_Control):
+                drag_points = dpg.get_item_children("channel_image_plot", slot=0)
+                if drag_points is None:
+                    return
+                dp_distances = {
+                    dpg.get_item_alias(dp): np.abs(
+                        np.array(dpg.get_value(dp)[:2]) - mouse_pos
+                    ).sum()
+                    for dp in drag_points
+                }
+                min_distance_dp = min(dp_distances, key=lambda k: dp_distances[k])
+                dp_alias = dpg.get_item_alias(min_distance_dp)
+                dpg.delete_item(min_distance_dp)
+                dpg.delete_item(f"spectrum_point_{dp_alias}")
