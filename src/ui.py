@@ -183,7 +183,7 @@ class UI:
                     )
 
     def setup_dev(self):
-        self.project = Project("/run/media/puglet5/HP P600/IH/stripes")
+        self.project = Project("/home/puglet5/Sync/IH/30112023")
         self.populate_image_gallery()
         self.window_resize_callback()
 
@@ -371,10 +371,11 @@ class UI:
                                 dpg.add_combo(
                                     items=["0", "90", "-90", "180"],
                                     default_value="0",
-                                    width=-1,
+                                    width=120,
                                     tag="rotation_angle",
                                     callback=self.rotate_images,
                                 )
+                                dpg.add_text("deg")
 
                     with dpg.child_window(
                         label="Images",
@@ -925,7 +926,7 @@ class UI:
                         [512, 512],
                         tag="channel_image",
                         show=False,
-                        tint_color=(255, 255, 255, 100),
+                        tint_color=(255, 255, 255, 150),
                     )
 
         _, image = self.project.current_image
@@ -1044,7 +1045,6 @@ class UI:
             dpg.set_value(dp, [x, y, 0, 0])
             self.drag_point_callback(dp, skip_original_pos_update=True)
 
-    @partial(loading_indicator, message="Rotating images...")
     def rotate_images(self):
         if self.pca_images is None:
             return
