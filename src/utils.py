@@ -28,7 +28,7 @@ coloredlogs.install(level="DEBUG")
 logger = logging.getLogger(__name__)
 
 
-def log_exec_time[T, **P](f: Callable[P, T]) -> Callable[P, T]:
+def log_exec_time(f: Callable) -> Callable:
     @wraps(f)
     def _wrapper(*args, **kwargs):
         start_time = time.perf_counter()
@@ -48,9 +48,7 @@ def hide_loading_indicator():
         dpg.hide_item("loading_indicator")
 
 
-def loading_indicator[
-    T, **P
-](f: Callable[P, T], message: str) -> Callable[P, T]:  # type:ignore
+def loading_indicator(f: Callable, message: str) -> Callable:  # type:ignore
     @wraps(f)
     def _wrapper(*args, **kwargs):
         dpg.configure_item("loading_indicator_message", label=message.center(30))
