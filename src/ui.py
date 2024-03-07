@@ -183,7 +183,7 @@ class UI:
                     )
 
     def setup_dev(self):
-        self.project = Project("/home/puglet5/Sync/IH/30112023")
+        self.project = Project(r"C:\Users\CRONO\Specim\Catalogs\25012024")
         self.populate_image_gallery()
         self.window_resize_callback()
 
@@ -207,6 +207,7 @@ class UI:
         self.window_resize_callback()
         self.collapsible_clicked_callback()
 
+    @partial(loading_indicator, message="Saving component image...")
     def save_pca_image(self):
         if not isinstance(self.pca_images, np.ndarray):
             return []
@@ -222,8 +223,9 @@ class UI:
         image_data = image_data.flatten().astype(int)
         filename = f"{self.project.catalog}/{name}_PCA_{pca_component_n}.png"
 
-        dpg.save_image(filename, 512, 512, image_data)
+        dpg.save_image(filename, 512, 512, image_data, components=3, quality=100)
 
+    @partial(loading_indicator, message="Saving channel image...")
     def save_channel_image(self):
         if not isinstance(self.channel_images, np.ndarray):
             return []
@@ -239,7 +241,7 @@ class UI:
         image_data = image_data.flatten().astype(int)
         filename = f"{self.project.catalog}/{name}_channel_{channel_n}.png"
 
-        dpg.save_image(filename, 512, 512, image_data)
+        dpg.save_image(filename, 512, 512, image_data, components=3, quality=100)
 
     def save_all_shown_images(self):
         self.save_channel_image()
@@ -341,6 +343,7 @@ class UI:
                             with dpg.group(horizontal=True):
                                 dpg.add_text("Catalog directory".rjust(LABEL_PAD))
                                 dpg.add_input_text(
+                                    default_value=r"C:\Users\CRONO\Specim\Catalogs",
                                     tag="project_directory",
                                     width=100,
                                     callback=lambda s, d: self.setup_project(),
@@ -588,14 +591,14 @@ class UI:
                                 dpg.add_plot_axis(
                                     dpg.mvXAxis,
                                     tag="spectrum_x",
-                                    label="Wavelength, nm"
+                                    label="Wavelength, nm",
                                 )
                                 dpg.add_plot_axis(
                                     dpg.mvYAxis,
                                     tag="spectrum_y",
                                     lock_min=True,
                                     lock_max=True,
-                                    label="Intensity, arb.u."
+                                    label="Intensity, arb.u.",
                                 )
 
                                 ticks = (
@@ -670,6 +673,7 @@ class UI:
                 show=False,
                 directory_selector=True,
                 width=800,
+                default_path="C:\\Users\\CRONO\\Specim\\Catalogs\\",
                 height=600,
                 tag="project_directory_picker",
             ):
